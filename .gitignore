@@ -1,0 +1,18 @@
+# build output
+/bin/
+*.exe
+*.exe~
+
+# generated database + raw downloads
+/data/*.db
+/data/*.db-wal
+/data/*.db-shm
+/data/raw/
+
+# local state (user's own review history)
+*.local.db
+
+# editor noise
+.vscode/
+.idea/
+*.swp
