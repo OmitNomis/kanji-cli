@@ -83,6 +83,10 @@ func Open(ctx context.Context, dictPath, progressPath string) (*Store, error) {
 // OpenDict opens a dictionary database for writing. Used only by the importer,
 // which trades every durability guarantee for speed: the file is rebuilt from
 // scratch on failure anyway.
+//
+// temp_store is deliberately left at its default of FILE. The build ends with a
+// VACUUM, and SQLite builds the vacuumed copy in temp storage, so an in-memory
+// temp store would mean holding the whole dictionary in RAM to compact it.
 func OpenDict(ctx context.Context, path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("create dictionary directory: %w", err)
@@ -93,7 +97,6 @@ func OpenDict(ctx context.Context, path string) (*Store, error) {
 		"journal_mode(OFF)",
 		"synchronous(OFF)",
 		"cache_size(-65536)",
-		"temp_store(MEMORY)",
 	)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
