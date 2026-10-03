@@ -51,13 +51,11 @@ func Open(ctx context.Context, dictPath, progressPath string) (*Store, error) {
 		"cache_size(-4000)",
 		"foreign_keys(OFF)",
 	)
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("open progress database: %w", err)
-	}
 
-	// One connection, kept for the life of the process: ATTACH does not survive
-	// being handed a different connection from a pool.
+	db := sql.OpenDB(attachingConnector(dsn, dictPath))
+
+	// A single-user CLI has no use for a pool, and serialising on one connection
+	// keeps two queries from contending for the same database lock.
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	db.SetConnMaxLifetime(0)
@@ -65,10 +63,6 @@ func Open(ctx context.Context, dictPath, progressPath string) (*Store, error) {
 
 	s := &Store{db: db, dictPath: dictPath, progPath: progressPath}
 
-	if _, err := db.ExecContext(ctx, `ATTACH DATABASE ? AS `+DictAlias, dictPath); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("attach dictionary %s: %w", dictPath, err)
-	}
 	if err := s.applySchema(ctx, "sql/progress.sql"); err != nil {
 		db.Close()
 		return nil, err
