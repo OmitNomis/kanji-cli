@@ -307,7 +307,11 @@ func (a *app) stats(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	a.out.Stats(counts, nextDue, hasNext, now)
+	week, err := a.store.Activity(ctx, now.AddDate(0, 0, -7))
+	if err != nil {
+		return err
+	}
+	a.out.Stats(counts, week, nextDue, hasNext, now)
 	return nil
 }
 

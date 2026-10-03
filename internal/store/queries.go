@@ -283,6 +283,39 @@ func (s *Store) IntroducedSince(ctx context.Context, t time.Time) (kanji, words 
 	return kanji, words, nil
 }
 
+// Activity is what the answer log says about a stretch of time.
+type Activity struct {
+	Answered int
+	Correct  int
+	Days     int // distinct local days on which something was answered
+}
+
+// Accuracy is the share of answers in the period that were correct.
+func (a Activity) Accuracy() float64 {
+	if a.Answered == 0 {
+		return 0
+	}
+	return float64(a.Correct) / float64(a.Answered)
+}
+
+// Activity summarises the answer log since t.
+//
+// This is what the log is for. The review table only remembers an item's
+// current state, so without the log there is no way to say whether the last
+// week went well, only where the queue happens to stand right now.
+func (s *Store) Activity(ctx context.Context, since time.Time) (Activity, error) {
+	var a Activity
+	err := s.db.QueryRowContext(ctx, `
+		SELECT count(*),
+		       coalesce(sum(correct), 0),
+		       count(DISTINCT date(at, 'unixepoch', 'localtime'))
+		FROM answer_log WHERE at >= ?`, since.Unix()).Scan(&a.Answered, &a.Correct, &a.Days)
+	if err != nil {
+		return a, fmt.Errorf("summarise activity: %w", err)
+	}
+	return a, nil
+}
+
 // NextDue reports when the soonest not-yet-due item comes round, so an empty
 // session can say how long the wait is instead of just "nothing to do".
 func (s *Store) NextDue(ctx context.Context, now time.Time) (time.Time, bool, error) {

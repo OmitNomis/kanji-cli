@@ -105,6 +105,9 @@ func TestDuration(t *testing.T) {
 		{4 * time.Hour, "4h"},
 		{3 * 24 * time.Hour, "3d"},
 		{180 * 24 * time.Hour, "6mo"},
+		// Nothing the ladder produces lands here, but a due date from somewhere
+		// else should not read as "3166mo".
+		{100 * 365 * 24 * time.Hour, "100y"},
 	}
 	for _, c := range cases {
 		if got := Duration(c.in); got != c.want {

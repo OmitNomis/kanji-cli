@@ -514,3 +514,50 @@ func cards(cs []Card) []Item {
 	}
 	return out
 }
+
+func TestActivitySummarisesTheAnswerLog(t *testing.T) {
+	ctx := context.Background()
+	s := fixture(t)
+
+	// Two answers today, one yesterday, one three weeks ago.
+	log := []struct {
+		at      time.Time
+		correct bool
+	}{
+		{testNow, true},
+		{testNow.Add(-2 * time.Hour), false},
+		{testNow.Add(-26 * time.Hour), true},
+		{testNow.Add(-21 * 24 * time.Hour), true},
+	}
+	for i, l := range log {
+		if err := s.LogAnswer(ctx, "k:日", "nichi", l.correct, 1, 2, l.at, 0); err != nil {
+			t.Fatalf("LogAnswer %d: %v", i, err)
+		}
+	}
+
+	week, err := s.Activity(ctx, testNow.AddDate(0, 0, -7))
+	if err != nil {
+		t.Fatalf("Activity: %v", err)
+	}
+	if week.Answered != 3 {
+		t.Errorf("answered = %d, want 3 (the three within the week)", week.Answered)
+	}
+	if week.Correct != 2 {
+		t.Errorf("correct = %d, want 2", week.Correct)
+	}
+	if week.Days != 2 {
+		t.Errorf("days = %d, want 2 distinct days", week.Days)
+	}
+	if got := week.Accuracy(); got < 0.66 || got > 0.67 {
+		t.Errorf("accuracy = %v, want about 0.667", got)
+	}
+
+	// An empty period must report nothing rather than divide by zero.
+	empty, err := s.Activity(ctx, testNow.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("Activity: %v", err)
+	}
+	if empty.Answered != 0 || empty.Days != 0 || empty.Accuracy() != 0 {
+		t.Errorf("empty period = %+v, want zeroes", empty)
+	}
+}

@@ -260,9 +260,9 @@ func (r *Renderer) Summary(s *review.Session, c store.Counts, nextDue time.Time,
 	r.Blank()
 }
 
-// Stats prints the whole picture: coverage of the dictionary, and the shape of
-// the queue across the level ladder.
-func (r *Renderer) Stats(c store.Counts, nextDue time.Time, hasNext bool, now time.Time) {
+// Stats prints the whole picture: coverage of the dictionary, the shape of the
+// queue across the level ladder, and what the last week actually looked like.
+func (r *Renderer) Stats(c store.Counts, week store.Activity, nextDue time.Time, hasNext bool, now time.Time) {
 	r.Blank()
 	r.Rule("progress", "")
 	r.Blank()
@@ -288,6 +288,14 @@ func (r *Renderer) Stats(c store.Counts, nextDue time.Time, hasNext bool, now ti
 	}
 
 	r.Blank()
+	if week.Answered > 0 {
+		r.Line("last 7 days  %s over %s, %.0f%% correct",
+			plural(week.Answered, "answer", "answers"),
+			plural(week.Days, "day", "days"),
+			week.Accuracy()*100)
+		r.Blank()
+	}
+
 	r.Line("due now    %s", r.style.Bold(count(c.Due)))
 	if c.Burned > 0 {
 		r.Line("burned     %s", count(c.Burned))
@@ -349,8 +357,12 @@ func Duration(d time.Duration) string {
 		return fmt.Sprintf("%dh", int(d.Round(time.Hour).Hours()))
 	case d < 60*24*time.Hour:
 		return fmt.Sprintf("%dd", int(d.Round(24*time.Hour).Hours()/24))
-	default:
+	case d < 2*365*24*time.Hour:
 		return fmt.Sprintf("%dmo", int(d.Hours()/(24*30)))
+	default:
+		// The ladder tops out at six months, so this only shows for a due date
+		// that came from somewhere else. "400mo" would read as a bug.
+		return fmt.Sprintf("%dy", int(d.Hours()/(24*365)))
 	}
 }
 
