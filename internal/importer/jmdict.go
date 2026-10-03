@@ -6,7 +6,8 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"unicode"
+
+	"github.com/OmitNomis/cli-kanji/internal/kana"
 )
 
 // Word is one JMdict entry reduced to a single reviewable compound: the
@@ -295,7 +296,7 @@ func KanjiRunes(s string) []rune {
 	var out []rune
 	seen := map[rune]bool{}
 	for _, r := range s {
-		if isKanji(r) && !seen[r] {
+		if kana.IsKanji(r) && !seen[r] {
 			seen[r] = true
 			out = append(out, r)
 		}
@@ -305,24 +306,11 @@ func KanjiRunes(s string) []rune {
 
 func hasKanji(s string) bool {
 	for _, r := range s {
-		if isKanji(r) {
+		if kana.IsKanji(r) {
 			return true
 		}
 	}
 	return false
-}
-
-// isKanji reports whether r is a character a learner would call a kanji.
-//
-// Unicode's Han script includes the CJK Symbols and Punctuation block, which
-// holds the iteration mark 々, the abbreviation 〆 and the ideographic zero 〇.
-// Counting those as kanji would make 時々 look as though it contained a
-// character outside the joyo list, and quietly drop it from a graded queue.
-func isKanji(r rune) bool {
-	if r >= 0x3000 && r <= 0x303F {
-		return false
-	}
-	return unicode.Is(unicode.Han, r)
 }
 
 // entityCode strips the XML entity punctuation JMdict's controlled vocabularies

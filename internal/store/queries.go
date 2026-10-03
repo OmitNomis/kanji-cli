@@ -339,12 +339,16 @@ func (s *Store) SetSetting(ctx context.Context, key, value string) error {
 
 // Lookup finds items whose prompt matches a kanji or compound exactly, for the
 // browse and lookup commands.
+//
+// A prompt can have several entries: 日 is a kanji and also two separate JMdict
+// words, ひ and にち. The kanji sorts first, since it is the character the
+// others are built from.
 func (s *Store) Lookup(ctx context.Context, prompt string, limit int) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+itemColumns+`
 		FROM `+DictAlias+`.item i
 		WHERE i.prompt = ?
-		ORDER BY i.kind DESC, i.sort_key
+		ORDER BY i.kind, i.sort_key
 		LIMIT ?`, prompt, limit)
 	if err != nil {
 		return nil, fmt.Errorf("lookup %s: %w", prompt, err)

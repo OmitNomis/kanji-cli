@@ -149,3 +149,17 @@ func isSokuonConsonant(c rune) bool {
 	}
 	return c != 'n' && !isVowel(c)
 }
+
+// IsKanji reports whether r is a character a learner would call a kanji.
+//
+// Unicode's Han script includes the CJK Symbols and Punctuation block, which
+// holds the iteration mark 々, the abbreviation 〆 and the ideographic zero 〇.
+// Those are not kanji: counting them as such makes 時々 look as though it
+// contains a character outside the joyo list, and spaces it out as two
+// characters when it is written as one plus a repeat.
+func IsKanji(r rune) bool {
+	if r >= 0x3000 && r <= 0x303F {
+		return false
+	}
+	return unicode.Is(unicode.Han, r)
+}
