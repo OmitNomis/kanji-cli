@@ -76,6 +76,8 @@ three hundred due reviews never stand between you and something new.
 
 **New kanji come first**, in school-grade order and then by how often the
 character appears in newspapers, because every compound is gated behind them.
+The queue is assembled when the session opens, so compounds unlocked by kanji
+you learn today turn up in the next session rather than the current one.
 
 **Daily budgets are per day, not per session**: starting the program twice does
 not double your intake.

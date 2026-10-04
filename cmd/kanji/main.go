@@ -184,10 +184,15 @@ func (a *app) loop(ctx context.Context, sess *review.Session) error {
 			return nil
 		}
 
-		a.out.Card(sess.Position(), sess.Total(), sess.Remaining()-1, card)
-
-		answered := false
+		answered, redraw := false, true
 		for !answered {
+			// The card is redrawn after anything that scrolls it away. Looking
+			// up an entry should not cost you sight of what you were answering.
+			if redraw {
+				a.out.Card(sess.Position(), sess.Total(), sess.Remaining()-1, card)
+				redraw = false
+			}
+
 			asked := time.Now()
 			line, ok := a.read(">")
 			if !ok {
@@ -218,11 +223,13 @@ func (a *app) loop(ctx context.Context, sess *review.Session) error {
 				if err := a.info(ctx, target); err != nil {
 					return err
 				}
+				redraw = true
 
 			case cmdStats:
 				if err := a.stats(ctx); err != nil {
 					return err
 				}
+				redraw = true
 
 			case cmdReveal:
 				// Being shown the answer is graded as not knowing it, which is

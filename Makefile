@@ -22,7 +22,7 @@ BUILD   := CGO_ENABLED=0 $(GO) build -trimpath -ldflags="$(LDFLAGS)"
 # every Atom has it.
 PLATFORMS := linux/386 linux/amd64 linux/arm64 windows/amd64 darwin/arm64
 
-.PHONY: all build dict fetch test vet fmt check dist clean distclean help
+.PHONY: all build dict fetch test race vet fmt check dist clean distclean help
 
 all: build
 
@@ -42,6 +42,10 @@ dict: build
 ## test: run every test
 test:
 	$(GO) test ./...
+
+## race: run the tests under the race detector (needs a C toolchain)
+race:
+	CGO_ENABLED=1 $(GO) test -race ./...
 
 ## vet: run go vet
 vet:
