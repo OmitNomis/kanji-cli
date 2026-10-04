@@ -69,7 +69,9 @@ scripts/deploy.sh
 
 Options: `WITH_IMPORTER=1` also installs `kanjidata`, so the target can rebuild
 its own dictionary later; `WITH_GREETING=1` prints your due count when you log
-in; `NO_KEY=1` skips key setup and lets ssh prompt each time.
+in; `NO_KEY=1` skips key setup and lets ssh prompt each time;
+`EXTRA_BINARIES="kanji-bot"` ships further `cmd/` packages, skipping any that
+do not exist yet.
 
 ### It is not a service
 
@@ -269,6 +271,19 @@ a newspaper printed them.
 
 Any redistribution of `dict.db` carries the CC BY-SA 4.0 attribution and
 share-alike terms with it.
+
+## What's next
+
+A Telegram front-end, so the same queue can be reviewed on a commute. The
+design, the deployment plan and what the Atom was measured to support are all
+in **[telegram_update.md](telegram_update.md)** — start there rather than from
+this file.
+
+The short version: `internal/review` holds the queue and the grading with no
+terminal code in it, so a bot is a second front-end over the same
+`review.Session` and the same `progress.db`. It does need a daemon, because
+Telegram long-polling keeps a process alive between messages, which is the one
+thing the CLI never needed.
 
 ## Layout
 

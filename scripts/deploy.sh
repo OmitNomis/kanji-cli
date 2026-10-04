@@ -158,6 +158,18 @@ mkdir -p dist
 BINARIES=(kanji)
 (( WITH_IMPORTER )) && BINARIES+=(kanjidata)
 
+# EXTRA_BINARIES names further cmd/ packages to ship, so a new front-end can be
+# deployed without editing this script. A name with no package is skipped
+# rather than failing: that is what lets EXTRA_BINARIES=kanji-bot be wired up
+# before cmd/kanji-bot exists.
+for name in ${EXTRA_BINARIES:-}; do
+	if [[ -d "cmd/$name" ]]; then
+		BINARIES+=("$name")
+	else
+		warn "no cmd/$name in this tree, skipping it"
+	fi
+done
+
 for name in "${BINARIES[@]}"; do
 	out="dist/$name-linux-$GOARCH"
 	CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOARM="${GOARM:-}" GO386=sse2 \
