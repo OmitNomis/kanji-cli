@@ -80,3 +80,9 @@ CREATE TABLE IF NOT EXISTS item (
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS item_by_order ON item (kind, sort_key);
 CREATE INDEX IF NOT EXISTS item_by_ref ON item (kind, ref_id);
+
+-- Lookup searches by the displayed text. Without this it scans all 27k items,
+-- which costs 35 ms on a developer machine and two thirds of a second on the
+-- Atom this is built for -- long enough to feel like a stall when you hit :i
+-- in the middle of a session.
+CREATE INDEX IF NOT EXISTS item_by_prompt ON item (prompt);

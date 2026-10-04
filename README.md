@@ -14,9 +14,10 @@ you do not.
        learning → familiar · back in 8h
 ```
 
-Target hardware is deliberately modest: a 1 GB DDR2 Intel Atom. So the whole
-thing is Go with a pure-Go SQLite driver — no cgo, no runtime dependencies, one
-static binary. A full session over a 3,600-card backlog peaks at **22 MB**.
+Target hardware is deliberately modest, and it is where this actually runs: an
+Intel Atom N280 at 1.66 GHz with 988 MB of DDR2. So the whole thing is Go with
+a pure-Go SQLite driver — no cgo, no runtime dependencies, one 6.2 MB static
+binary. On that machine it starts in 76 ms and peaks at 8 MB of RSS.
 
 ## Quick start
 
@@ -26,6 +27,8 @@ make dict         # download the dictionaries and build data/dict.db (~10s, 43 M
 bin/kanji         # review
 ```
 
+To put it on another machine instead, skip to [Deploying](#deploying-to-another-machine).
+
 Without `make`:
 
 ```sh
@@ -34,16 +37,59 @@ bin/kanjidata                 # writes data/dict.db
 bin/kanji
 ```
 
-To put it on another machine, cross-compile and copy two files — the binary and
-the dictionary:
+## Deploying to another machine
 
 ```sh
-make dist                                     # dist/kanji-linux-386, -amd64, -arm64
-scp dist/kanji-linux-386 data/dict.db atom:~/
+scripts/deploy.sh root@10.0.0.5
 ```
 
-The binary looks for `dict.db` next to itself, then in `./data/`, then in the
-per-user config directory, so dropping both in the same folder is enough.
+That is the whole install. The script detects the target's architecture, builds
+for it, sends the dictionary compressed (18 MB rather than 43 MB, which matters
+over a relayed link), checksums it on arrival, and installs two files:
+
+| | |
+|---|---|
+| `/usr/local/bin/kanji` | the static binary |
+| `~/.config/cli-kanji/dict.db` | the dictionary, in a place the binary already looks |
+
+Nothing else is configured, and nothing is left running. The target needs only
+an SSH server and `gzip`.
+
+You are asked for the target's password **once**, on the first run, so the
+script can install a deploy key; every run afterwards is passwordless. It is
+safe to re-run — the dictionary is only re-sent when it has actually changed,
+so a routine update moves 6 MB instead of 18 MB.
+
+Put the target in `scripts/deploy.env` (untracked) to stop typing it:
+
+```sh
+echo 'KANJI_HOST=root@10.0.0.5' > scripts/deploy.env
+scripts/deploy.sh
+```
+
+Options: `WITH_IMPORTER=1` also installs `kanjidata`, so the target can rebuild
+its own dictionary later; `WITH_GREETING=1` prints your due count when you log
+in; `NO_KEY=1` skips key setup and lets ssh prompt each time.
+
+### It is not a service
+
+There is nothing to run as a daemon — `kanji` is an interactive program that
+exits when you are done, so a systemd unit would have nothing to supervise.
+`WITH_GREETING=1` is the useful version of that idea: it appends a guarded
+block to the target's shell profile so logging in tells you how many reviews
+are waiting. Remove the `>>> cli-kanji greeting >>>` block to undo it.
+
+### Measured on the target it was built for
+
+An Intel Atom N280 at 1.66 GHz, 988 MB of DDR2, Debian 12, 32-bit:
+
+| | |
+|---|---|
+| startup (`kanji version`) | 76 ms |
+| `kanji stats` | 79 ms |
+| `kanji info 国境` | 48 ms |
+| peak RSS | 8 MB |
+| binary | 6.2 MB |
 
 ## What it teaches
 

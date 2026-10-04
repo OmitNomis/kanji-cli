@@ -19,3 +19,6 @@
 
 # cross-compiled release binaries
 /dist/
+
+# local deploy settings (machine addresses)
+/scripts/deploy.env
