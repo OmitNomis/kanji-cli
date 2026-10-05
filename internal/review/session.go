@@ -9,6 +9,8 @@ package review
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/OmitNomis/cli-kanji/internal/kana"
@@ -28,6 +30,16 @@ type Config struct {
 
 	// MaxCards caps the session. Zero means work through everything due.
 	MaxCards int
+
+	// Cram skips the clock. Everything in the queue is asked whether or not it
+	// has come round, and the new-item budgets apply to the session rather than
+	// to the day, so a backlog of readings you already know can be put into the
+	// scheduler in an afternoon instead of over a fortnight.
+	//
+	// Nothing else changes: answers are graded, persisted and given real due
+	// times exactly as they are otherwise. It is the waiting that is skipped,
+	// not the ladder, which is what makes a crammed queue usable afterwards.
+	Cram bool
 
 	// NewEvery places one new item every nth card, so a backlog of reviews does
 	// not have to be cleared before anything new appears.
@@ -57,6 +69,30 @@ func DefaultConfig() Config {
 	}
 }
 
+// ParseGrades reads a grade range such as "1-6", "3" or "1-8" into the bounds
+// Selection wants. Both front-ends take the range as a string from a flag, so
+// the parsing and the "within 1-8" rule live here rather than in either main.
+func ParseGrades(s string) (minGrade, maxGrade int, err error) {
+	s = strings.TrimSpace(s)
+	lo, hi, found := strings.Cut(s, "-")
+	if !found {
+		hi = lo
+	}
+
+	minGrade, err = strconv.Atoi(strings.TrimSpace(lo))
+	if err != nil {
+		return 0, 0, fmt.Errorf("bad grade range %q: %w", s, err)
+	}
+	maxGrade, err = strconv.Atoi(strings.TrimSpace(hi))
+	if err != nil {
+		return 0, 0, fmt.Errorf("bad grade range %q: %w", s, err)
+	}
+	if minGrade < 1 || maxGrade > 8 || minGrade > maxGrade {
+		return 0, 0, fmt.Errorf("bad grade range %q: want a range within 1-8", s)
+	}
+	return minGrade, maxGrade, nil
+}
+
 // dueFetchLimit bounds the backlog pulled into memory at once. A card is a few
 // hundred bytes, so this is well under a megabyte even on the target box, and
 // nobody clears two thousand reviews in a sitting anyway.
@@ -83,7 +119,9 @@ type Session struct {
 }
 
 // Begin assembles the queue: everything due, with the day's remaining new items
-// woven in.
+// woven in. A cram session takes everything in the queue rather than what has
+// come round, and the whole of the new-item budget rather than what the day has
+// left.
 func Begin(ctx context.Context, st *store.Store, sched srs.Scheduler, cfg Config, now time.Time) (*Session, error) {
 	s := &Session{
 		store:     st,
@@ -93,7 +131,7 @@ func Begin(ctx context.Context, st *store.Store, sched srs.Scheduler, cfg Config
 		StartedAt: now,
 	}
 
-	due, err := st.Due(ctx, now, dueFetchLimit)
+	due, err := s.waiting(ctx, now)
 	if err != nil {
 		return nil, err
 	}
@@ -110,12 +148,27 @@ func Begin(ctx context.Context, st *store.Store, sched srs.Scheduler, cfg Config
 	return s, nil
 }
 
+// waiting is the review half of the queue: what has come round, or everything
+// in the queue when the session is cramming.
+func (s *Session) waiting(ctx context.Context, now time.Time) ([]store.Card, error) {
+	if s.cfg.Cram {
+		return s.store.Scheduled(ctx, dueFetchLimit)
+	}
+	return s.store.Due(ctx, now, dueFetchLimit)
+}
+
 // pickNew works out how much of today's budget is left and claims that many
 // items: kanji first, because every compound is gated behind them.
 func (s *Session) pickNew(ctx context.Context, now time.Time) ([]store.Card, error) {
-	kanjiToday, wordsToday, err := s.store.IntroducedSince(ctx, startOfDay(now))
-	if err != nil {
-		return nil, err
+	var kanjiToday, wordsToday int
+	if !s.cfg.Cram {
+		// A cram session counts its intake against itself rather than against
+		// the day, so repeated passes are how you get through the list.
+		var err error
+		kanjiToday, wordsToday, err = s.store.IntroducedSince(ctx, startOfDay(now))
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	kanjiBudget := max(s.cfg.NewKanji-kanjiToday, 0)
