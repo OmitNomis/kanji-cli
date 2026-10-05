@@ -9,11 +9,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/OmitNomis/cli-kanji/internal/kana"
 	"github.com/OmitNomis/cli-kanji/internal/review"
 	"github.com/OmitNomis/cli-kanji/internal/srs"
 	"github.com/OmitNomis/cli-kanji/internal/store"
@@ -56,6 +54,7 @@ type options struct {
 	grades   string
 	tier     int
 	gate     int
+	cram     bool
 
 	width int
 	color bool
@@ -72,6 +71,7 @@ func run(args []string) error {
 	fs.StringVar(&o.grades, "grades", "1-8", "school grades to teach: 1-6 elementary, 8 the rest of the joyo list")
 	fs.IntVar(&o.tier, "tier", 1, "lowest compound frequency tier to review: 2 common, 1 also second tier, 0 all")
 	fs.IntVar(&o.gate, "gate", 1, "level a kanji must reach before its compounds are introduced")
+	fs.BoolVar(&o.cram, "cram", false, "ignore due times: ask everything in the queue now, and take the whole new-item budget this session")
 	fs.IntVar(&o.width, "width", ui.DefaultWidth, "terminal width in columns")
 	fs.BoolVar(&o.color, "color", false, "force colour even when output is redirected")
 	fs.Usage = func() {
@@ -175,131 +175,91 @@ func (a *app) review(ctx context.Context) error {
 	return nil
 }
 
-// loop asks each card in turn. Every answer is persisted as it is given, so
-// quitting at any point, or killing the process, loses nothing but the summary.
+// loop asks each card in turn, letting review.Turn decide what a line means.
+// Every answer is persisted as it is given, so quitting at any point, or killing
+// the process, loses nothing but the summary.
 func (a *app) loop(ctx context.Context, sess *review.Session) error {
+	turn := review.NewTurn(sess, time.Now())
+	draw := true
+
 	for {
-		card, ok := sess.Current()
+		card, ok := turn.Card()
 		if !ok {
 			return nil
 		}
 
-		answered, redraw := false, true
-		for !answered {
-			// The card is redrawn after anything that scrolls it away. Looking
-			// up an entry should not cost you sight of what you were answering.
-			if redraw {
-				a.out.Card(sess.Position(), sess.Total(), sess.Remaining()-1, card)
-				redraw = false
-			}
+		// The card is redrawn after anything that scrolls it away. Looking up
+		// an entry should not cost you sight of what you were answering.
+		if draw {
+			a.out.Card(sess.Position(), sess.Total(), sess.Remaining()-1, card)
+			draw = false
+		}
 
-			asked := time.Now()
-			line, ok := a.read(">")
-			if !ok {
-				return errQuit
-			}
+		prompt := ">"
+		if turn.Phase() == review.Drilling {
+			prompt = "retype >"
+		}
+		line, ok := a.read(prompt)
+		if !ok {
+			return errQuit
+		}
 
-			switch cmd, arg := command(line); cmd {
-			case cmdEmpty:
-				// An empty line is a slip, not an answer. Re-ask rather than
-				// marking a card wrong because Enter was hit twice.
-				continue
+		cmd := review.ParseCommand(line, review.ColonPrefix)
+		out, err := turn.Submit(ctx, cmd, time.Now())
+		if err != nil {
+			return err
+		}
 
-			case cmdQuit:
-				return errQuit
+		switch out.What {
+		case review.OutQuit:
+			return errQuit
 
-			case cmdSkip:
-				sess.Skip()
-				answered = true
-
-			case cmdHelp:
+		case review.OutNothing:
+			// An empty line is a slip, not an answer: re-ask rather than
+			// marking a card wrong because Enter was hit twice.
+			//
+			// Anything else landing here opens a session, which the terminal
+			// does with a flag rather than mid-session, so say what there is.
+			if cmd.Kind != review.CmdEmpty {
 				a.out.Help()
-
-			case cmdInfo:
-				target := arg
-				if target == "" {
-					target = card.Prompt
-				}
-				if err := a.info(ctx, target); err != nil {
-					return err
-				}
-				redraw = true
-
-			case cmdStats:
-				if err := a.stats(ctx); err != nil {
-					return err
-				}
-				redraw = true
-
-			case cmdReveal:
-				// Being shown the answer is graded as not knowing it, which is
-				// what it is. An empty answer can never match, so the reveal
-				// reaches the scheduler through the same grading path as any
-				// other failure, and the log records it as an empty answer.
-				res, err := sess.Answer(ctx, "", 0, time.Now())
-				if err != nil {
-					return err
-				}
-				a.out.Revealed(res, card)
-				if err := a.drill(ctx, card); err != nil {
-					return err
-				}
-				answered = true
-
-			case cmdAnswer:
-				res, err := sess.Answer(ctx, line, time.Since(asked), time.Now())
-				if err != nil {
-					return err
-				}
-				if res.Correct {
-					a.out.Correct(res, card)
-				} else {
-					a.out.Wrong(res, card)
-					if err := a.drill(ctx, card); err != nil {
-						return err
-					}
-				}
-				answered = true
 			}
-		}
-	}
-}
 
-// drill makes the reviewer type the reading they just missed.
-//
-// Reading the right answer and pressing Enter teaches nothing; typing it is the
-// whole point of a program that refuses to offer multiple choice. It is not
-// graded, because the card was already graded on the attempt that failed.
-func (a *app) drill(ctx context.Context, card store.Card) error {
-	a.out.Drill()
-	for {
-		line, ok := a.read("retype >")
-		if !ok {
-			return errQuit
-		}
-		switch cmd, arg := command(line); cmd {
-		case cmdEmpty:
-			continue
-		case cmdQuit:
-			return errQuit
-		case cmdSkip:
-			// There has to be a way out: a reading you cannot type yet should
-			// not be able to trap the session.
-			return nil
-		case cmdInfo:
-			target := arg
-			if target == "" {
-				target = card.Prompt
-			}
-			if err := a.info(ctx, target); err != nil {
+		case review.OutHelp:
+			a.out.Help()
+
+		case review.OutInfo:
+			if err := a.info(ctx, out.Target); err != nil {
 				return err
 			}
-		default:
-			if _, ok := kana.MatchesAny(card.Answers, line); ok {
-				a.out.Accepted()
-				return nil
+			draw = turn.Phase() == review.Asking
+
+		case review.OutStats:
+			if err := a.stats(ctx); err != nil {
+				return err
 			}
-			a.out.Rejected(card)
+			draw = turn.Phase() == review.Asking
+
+		case review.OutCorrect:
+			a.out.Correct(out.Result, out.Card)
+			draw = true
+
+		case review.OutWrong:
+			a.out.Wrong(out.Result, out.Card)
+			a.out.Drill()
+
+		case review.OutRevealed:
+			a.out.Revealed(out.Result, out.Card)
+			a.out.Drill()
+
+		case review.OutMistyped:
+			a.out.Rejected(out.Card)
+
+		case review.OutRetyped:
+			a.out.Accepted()
+			draw = true
+
+		case review.OutSkipped, review.OutAbandoned:
+			draw = true
 		}
 	}
 }
@@ -375,9 +335,14 @@ func (a *app) nothingDue(ctx context.Context, now time.Time) error {
 		return err
 	}
 	a.out.Blank()
-	if hasNext {
+	switch {
+	case a.opts.cram:
+		// Cramming already ignored every due time, so there is nothing to wait
+		// for: an empty queue here means there is nothing left to introduce.
+		a.out.Line("nothing left to cram: raise -new-kanji or -new-words, or widen -grades.")
+	case hasNext:
 		a.out.Line("nothing due. next review in %s.", ui.Duration(nextDue.Sub(now)))
-	} else {
+	default:
 		a.out.Line("nothing due and nothing scheduled: raise -new-kanji or -new-words.")
 	}
 	a.out.Blank()
@@ -405,86 +370,15 @@ func (a *app) config() (review.Config, error) {
 	cfg.MaxCards = a.opts.maxCards
 	cfg.Selection.WordTier = a.opts.tier
 	cfg.Selection.GateLevel = a.opts.gate
+	cfg.Cram = a.opts.cram
 
-	minGrade, maxGrade, err := parseGrades(a.opts.grades)
+	minGrade, maxGrade, err := review.ParseGrades(a.opts.grades)
 	if err != nil {
 		return cfg, err
 	}
 	cfg.Selection.MinGrade = minGrade
 	cfg.Selection.MaxGrade = maxGrade
 	return cfg, nil
-}
-
-// kind enumerates what a line at the prompt turned out to be.
-type kind int
-
-const (
-	cmdAnswer kind = iota
-	cmdEmpty
-	cmdQuit
-	cmdSkip
-	cmdInfo
-	cmdStats
-	cmdHelp
-	cmdReveal
-)
-
-// command classifies a line.
-//
-// Commands need the colon prefix because single letters collide with real
-// answers: い is a reading of 五, so a bare "i" has to mean い and not "info".
-// A bare "?" is safe, since no reading is a question mark.
-func command(line string) (kind, string) {
-	switch {
-	case line == "":
-		return cmdEmpty, ""
-	case line == "?":
-		return cmdReveal, ""
-	case !strings.HasPrefix(line, ":"):
-		return cmdAnswer, line
-	}
-
-	name, arg, _ := strings.Cut(strings.TrimPrefix(line, ":"), " ")
-	arg = strings.TrimSpace(arg)
-
-	switch strings.ToLower(name) {
-	case "q", "quit", "exit":
-		return cmdQuit, ""
-	case "s", "skip", "n", "next":
-		return cmdSkip, ""
-	case "i", "info":
-		return cmdInfo, arg
-	case "stats", "progress":
-		return cmdStats, ""
-	case "h", "help", "?":
-		return cmdHelp, ""
-	case "r", "reveal", "hint":
-		return cmdReveal, ""
-	default:
-		return cmdHelp, ""
-	}
-}
-
-// parseGrades reads a grade range such as "1-6", "3" or "1-8".
-func parseGrades(s string) (int, int, error) {
-	s = strings.TrimSpace(s)
-	lo, hi, found := strings.Cut(s, "-")
-	if !found {
-		hi = lo
-	}
-
-	minGrade, err := strconv.Atoi(strings.TrimSpace(lo))
-	if err != nil {
-		return 0, 0, fmt.Errorf("bad -grades %q: %w", s, err)
-	}
-	maxGrade, err := strconv.Atoi(strings.TrimSpace(hi))
-	if err != nil {
-		return 0, 0, fmt.Errorf("bad -grades %q: %w", s, err)
-	}
-	if minGrade < 1 || maxGrade > 8 || minGrade > maxGrade {
-		return 0, 0, fmt.Errorf("bad -grades %q: want a range within 1-8", s)
-	}
-	return minGrade, maxGrade, nil
 }
 
 // shortDate trims the importer's RFC 3339 timestamp to a date for the banner.
