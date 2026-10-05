@@ -71,15 +71,35 @@ const reviewColumns = `r.level, r.due_at, r.reps, r.lapses, r.streak,
 
 // Due returns the items that have come round again, soonest first.
 func (s *Store) Due(ctx context.Context, now time.Time, limit int) ([]Card, error) {
+	return s.queue(ctx, `WHERE r.due_at <= ?`, []any{now.Unix(), limit})
+}
+
+// Scheduled returns every item in the queue whatever its due time, the most
+// overdue first.
+//
+// This is what a cram session asks for: someone who already reads much of the
+// list wants to get it into the scheduler now rather than meet five characters
+// a day and wait four hours between sittings. Answers are graded and persisted
+// exactly as they are in a normal session -- the clock is skipped, not the
+// ladder -- so a few cram passes leave the queue in a state real SRS can take
+// over from.
+func (s *Store) Scheduled(ctx context.Context, limit int) ([]Card, error) {
+	return s.queue(ctx, ``, []any{limit})
+}
+
+// queue runs the card projection with a caller-supplied filter. The ORDER BY is
+// shared on purpose: due first, then teaching order, so a cram pass sees the
+// same sequence a normal session would once everything has come round.
+func (s *Store) queue(ctx context.Context, where string, args []any) ([]Card, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+itemColumns+`, `+reviewColumns+`
 		FROM review r
 		JOIN `+DictAlias+`.item i ON i.key = r.item_key
-		WHERE r.due_at <= ?
+		`+where+`
 		ORDER BY r.due_at, i.sort_key, i.key
-		LIMIT ?`, now.Unix(), limit)
+		LIMIT ?`, args...)
 	if err != nil {
-		return nil, fmt.Errorf("query due items: %w", err)
+		return nil, fmt.Errorf("query queued items: %w", err)
 	}
 	defer rows.Close()
 
