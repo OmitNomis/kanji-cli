@@ -128,8 +128,8 @@ func TestCountGroupsThousands(t *testing.T) {
 		{2136, "2,136"},
 	}
 	for _, c := range cases {
-		if got := count(c.in); got != c.want {
-			t.Errorf("count(%d) = %q, want %q", c.in, got, c.want)
+		if got := Count(c.in); got != c.want {
+			t.Errorf("Count(%d) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }

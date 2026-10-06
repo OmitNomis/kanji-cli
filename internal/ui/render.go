@@ -99,7 +99,7 @@ func (r *Renderer) Card(position, total, remaining int, c store.Card) {
 	label := fmt.Sprintf("%d/%d · %s · %s", position, total, kind, srs.LevelName(c.State.Level))
 	note := ""
 	if remaining > 0 {
-		note = fmt.Sprintf("%s left", count(remaining))
+		note = fmt.Sprintf("%s left", Count(remaining))
 	}
 
 	r.Blank()
@@ -188,9 +188,9 @@ func (r *Renderer) Banner(c store.Counts, builtAt string) {
 	r.Rule("cli-kanji", builtAt)
 	r.Line("%s", r.style.Dim(fmt.Sprintf(
 		"dictionary: %s kanji, %s compounds",
-		count(c.DictKanjiItems), count(c.DictWordItems))))
+		Count(c.DictKanjiItems), Count(c.DictWordItems))))
 	r.Line("%s", fmt.Sprintf("%s due · %s in progress · %s burned",
-		r.style.Bold(count(c.Due)), count(c.InProgress), count(c.Burned)))
+		r.style.Bold(Count(c.Due)), Count(c.InProgress), Count(c.Burned)))
 }
 
 // Help lists the commands available at a prompt.
@@ -253,7 +253,7 @@ func (r *Renderer) Summary(s *review.Session, c store.Counts, nextDue time.Time,
 
 	switch {
 	case c.Due > 0:
-		r.Line("%s", fmt.Sprintf("%s still due", r.style.Bold(count(c.Due))))
+		r.Line("%s", fmt.Sprintf("%s still due", r.style.Bold(Count(c.Due))))
 	case hasNext:
 		r.Line("%s", r.style.Dim("next review in "+Duration(nextDue.Sub(now))))
 	}
@@ -283,7 +283,7 @@ func (r *Renderer) Stats(c store.Counts, week store.Activity, nextDue time.Time,
 		}
 		r.Line("%s %s %s",
 			Pad(fmt.Sprintf("lvl %d %s", level, srs.LevelName(level)), 18),
-			Pad(count(n), 7),
+			Pad(Count(n), 7),
 			r.style.Dim(strings.Repeat("▌", scale(n, peak, 20))))
 	}
 
@@ -296,12 +296,12 @@ func (r *Renderer) Stats(c store.Counts, week store.Activity, nextDue time.Time,
 		r.Blank()
 	}
 
-	r.Line("due now    %s", r.style.Bold(count(c.Due)))
+	r.Line("due now    %s", r.style.Bold(Count(c.Due)))
 	if c.Burned > 0 {
-		r.Line("burned     %s", count(c.Burned))
+		r.Line("burned     %s", Count(c.Burned))
 	}
 	if c.Leeches > 0 {
-		r.Line("leeches    %s  %s", count(c.Leeches),
+		r.Line("leeches    %s  %s", Count(c.Leeches),
 			r.style.Dim(fmt.Sprintf("(forgotten %d+ times)", srs.LeechLapses)))
 	}
 	if c.Due == 0 && hasNext {
@@ -375,7 +375,7 @@ func bar(have, total, cells int, s Style) string {
 	return fmt.Sprintf("%s%s  %s",
 		s.Green(strings.Repeat("█", filled)),
 		s.Dim(strings.Repeat("░", cells-filled)),
-		fmt.Sprintf("%s / %s", count(have), count(total)))
+		fmt.Sprintf("%s / %s", Count(have), Count(total)))
 }
 
 // scale maps have/total onto cells, never rounding a non-zero value down to
@@ -400,12 +400,12 @@ func plural(n int, one, many string) string {
 	if n == 1 {
 		return fmt.Sprintf("%d %s", n, one)
 	}
-	return fmt.Sprintf("%s %s", count(n), many)
+	return fmt.Sprintf("%s %s", Count(n), many)
 }
 
-// count groups thousands, because "25406" and "2136" are hard to compare at a
+// Count groups thousands, because "25406" and "2136" are hard to compare at a
 // glance and "25,406" is not.
-func count(n int) string {
+func Count(n int) string {
 	s := fmt.Sprint(n)
 	if n < 0 || len(s) <= 3 {
 		return s
