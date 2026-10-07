@@ -17,6 +17,13 @@ Wants=network-online.target
 [Service]
 ExecStart=@BIN_DIR@/kanji-bot
 EnvironmentFile=/etc/cli-kanji/bot.env
+
+# Both databases are named outright, because a system service has no $HOME and
+# the binary's own search path ends at the per-user config directory: without
+# these it looks for a relative data/dict.db from / and exits. These two paths
+# are also what ReadWritePaths below has to cover.
+Environment=CLI_KANJI_DICT=@DATA_DIR@/dict.db
+Environment=CLI_KANJI_PROGRESS=@DATA_DIR@/progress.db
 Restart=always
 RestartSec=5
 
