@@ -164,6 +164,21 @@ command -v go >/dev/null || die "go is not installed on this machine"
 say "building for linux/$GOARCH"
 mkdir -p dist
 
+# Microsoft Defender flags the cross-compiled Linux kanji-bot as
+# Trojan:Linux/Kaiji.A!MTB and deletes it out of Go's build directory before the
+# link finishes. Kaiji is a Go-written Linux botnet, so the heuristic hits a
+# static Go ELF that speaks HTTP; kanji itself is not flagged. It is a false
+# positive, and the fix is a scan exclusion on this repository -- which only
+# helps if the build actually happens inside it, so keep Go's temporary
+# directory here rather than under AppData.
+case "$(uname -s)" in
+	MINGW*|MSYS*|CYGWIN*)
+		GOTMPDIR="${GOTMPDIR:-$REPO_ROOT/.gotmp}"
+		mkdir -p "$GOTMPDIR"
+		export GOTMPDIR
+		;;
+esac
+
 BINARIES=(kanji)
 (( WITH_IMPORTER )) && BINARIES+=(kanjidata)
 

@@ -22,3 +22,7 @@
 
 # local deploy settings (machine addresses)
 /scripts/deploy.env
+
+# Go temporary build directory, kept inside the repo on Windows so a
+# Defender scan exclusion on this folder actually covers the linker output.
+/.gotmp/
