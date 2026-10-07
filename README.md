@@ -22,7 +22,7 @@ binary. On that machine it starts in 76 ms and peaks at 8 MB of RSS.
 ## Quick start
 
 ```sh
-make build        # compile bin/kanji and bin/kanjidata
+make build        # compile bin/kanji, bin/kanjidata and bin/kanji-bot
 make dict         # download the dictionaries and build data/dict.db (~10s, 43 MB)
 bin/kanji         # review
 ```
@@ -36,6 +36,9 @@ go build -o bin/ ./cmd/kanji ./cmd/kanjidata
 bin/kanjidata                 # writes data/dict.db
 bin/kanji
 ```
+
+The Telegram front-end is `./cmd/kanji-bot`, and needs a token rather than a
+terminal — see [Reviewing from Telegram](#reviewing-from-telegram).
 
 ## Deploying to another machine
 
@@ -68,18 +71,23 @@ scripts/deploy.sh
 ```
 
 Options: `WITH_IMPORTER=1` also installs `kanjidata`, so the target can rebuild
-its own dictionary later; `WITH_GREETING=1` prints your due count when you log
-in; `NO_KEY=1` skips key setup and lets ssh prompt each time;
+its own dictionary later; `WITH_BOT=1` also installs the Telegram bot and its
+systemd unit; `WITH_GREETING=1` prints your due count when you log in;
+`NO_KEY=1` skips key setup and lets ssh prompt each time;
 `EXTRA_BINARIES="kanji-bot"` ships further `cmd/` packages, skipping any that
 do not exist yet.
 
-### It is not a service
+### The CLI is not a service; the bot is
 
-There is nothing to run as a daemon — `kanji` is an interactive program that
+`kanji` has nothing to run as a daemon — it is an interactive program that
 exits when you are done, so a systemd unit would have nothing to supervise.
 `WITH_GREETING=1` is the useful version of that idea: it appends a guarded
 block to the target's shell profile so logging in tells you how many reviews
 are waiting. Remove the `>>> cli-kanji greeting >>>` block to undo it.
+
+The Telegram front-end is the exception, because long polling means a process
+has to be alive between your messages. `WITH_BOT=1` installs it as
+`kanji-bot.service` — see [Reviewing from Telegram](#reviewing-from-telegram).
 
 ### Measured on the target it was built for
 
@@ -158,6 +166,32 @@ four-way self-grade, and typing a reading has no self-grade to earn it from: an
 answer either is the reading or it is not. What is left is a fixed interval
 ladder, which also reduces an item's entire schedule to one integer on disk.
 
+### Catching up, if you already read some of this
+
+Spaced repetition is the wrong tool for a list you partly know already. Five
+new characters a day and four hours between sittings is the right pace for
+learning something; it is a waste of a fortnight if what you actually need is
+to tell the scheduler which hundred kanji you can already read.
+
+`-cram` skips the clock:
+
+```sh
+kanji -cram -new-kanji 40 -new-words 60     # a catch-up sitting
+kanji -cram                                 # again, and again
+```
+
+Two things change, and nothing else. Everything in the queue is asked whether
+or not it has come round, and the daily new-item budget becomes a per-session
+one, so running it four times introduces four times as much. Answers are still
+graded, still persisted, and still given real due times — it is the *waiting*
+that is skipped, not the ladder. So a correct answer in a cram session climbs a
+rung exactly as it would otherwise, and a few passes leave a queue that
+ordinary review can take over from. Things you miss drop back down and come
+round quickly, which is the point: cramming sorts the list into what you know
+and what you do not.
+
+When you are up to speed, stop passing `-cram` and the clock comes back.
+
 ## Typing the answer
 
 Romaji and kana both work, and you need no IME:
@@ -214,6 +248,7 @@ Useful flags:
 | `-grades` | `1-8` | `1-6` for elementary only, `3` for one grade |
 | `-tier` | 1 | 2 common compounds only, 1 also second tier, 0 all 175k |
 | `-gate` | 1 | level a kanji must reach before its compounds appear |
+| `-cram` | off | ignore due times, and spend the whole new-item budget now |
 | `-width` | 72 | terminal columns |
 | `-dict`, `-progress` | | database locations |
 
@@ -272,30 +307,110 @@ a newspaper printed them.
 Any redistribution of `dict.db` carries the CC BY-SA 4.0 attribution and
 share-alike terms with it.
 
-## What's next
+## Reviewing from Telegram
 
-A Telegram front-end, so the same queue can be reviewed on a commute. The
-design, the deployment plan and what the Atom was measured to support are all
-in **[telegram_update.md](telegram_update.md)** — start there rather than from
-this file.
+`kanji-bot` is the same queue on a phone. It is a second front-end over the
+same `review.Session` and the same `progress.db`, not a second program: a card
+answered on a commute is answered for the desk too, and the drill, the
+grading and the command vocabulary are the hoisted ones, so there is no second
+copy of the rules to get out of step.
 
-The short version: `internal/review` holds the queue and the grading with no
-terminal code in it, so a bot is a second front-end over the same
-`review.Session` and the same `progress.db`. It does need a daemon, because
-Telegram long-polling keeps a process alive between messages, which is the one
-thing the CLI never needed.
+```
+14/60 · word · learning · 312 left
+
+写 真
+
+> shashin
+
+✓ しゃしん
+photograph; photo; picture
+learning → familiar · back in 8h
+```
+
+| | |
+|---|---|
+| `/review` | start or resume a session |
+| `/cram` | ignore due times and work through the queue now |
+| `/reveal` | show the reading, graded as wrong |
+| `/skip` | skip without grading |
+| `/info 国境` | an entry and the compounds that use it |
+| `/stats` | progress |
+| `/stop` | end the session |
+
+Anything not starting with `/` is an answer, and romaji works, so no IME is
+needed on a phone keyboard. There are no answer buttons, deliberately: tapping
+one is multiple choice, which is the thing this program exists not to be.
+
+### Setting it up
+
+```sh
+WITH_BOT=1 scripts/deploy.sh
+```
+
+That ships the binary, installs `/etc/systemd/system/kanji-bot.service` and
+creates `/etc/cli-kanji/bot.env` at mode `0600` with placeholders. The token
+never goes in the repository and is never passed as an argument — arguments are
+visible in `ps` to every user on the box, and systemd's `EnvironmentFile` is
+not. Fill it in:
+
+```
+TELEGRAM_BOT_TOKEN=123456:ABC...        # from @BotFather
+TELEGRAM_ALLOWED_CHAT_IDS=123456789     # who may use it
+```
+
+**The allowlist is not optional.** A bot token is a public endpoint: anyone who
+learns the username can message it, and an unguarded bot is a stranger drilling
+your deck and writing to your progress file. An empty list therefore denies
+everybody rather than permitting everybody — and that is how you find your own
+chat ID in the first place:
+start the bot with the list empty, message it once, and read the refusal out of
+the journal.
+
+```sh
+ssh root@host "journalctl -u kanji-bot | grep 'rejected chat'"
+```
+
+Put that number in `bot.env`, `systemctl restart kanji-bot`, and you are the
+only person it will talk to.
+
+### Why it needs a daemon
+
+Telegram has exactly two delivery models, and both need a process alive between
+your messages. Webhooks need a public HTTPS endpoint with a valid certificate;
+long polling needs nothing but outbound HTTP. The target sits behind Tailscale
+with no public address, so long polling is both the only practical option and
+the better one — nothing exposed, nothing to renew.
+
+A restart loses the assembled queue and nothing else, because every answer is
+written to disk as it is given. The next message simply starts a fresh session
+over whatever is due. Idle sessions are dropped after an hour so an abandoned
+chat does not pin a queue in memory, and `systemctl stop kanji-bot` leaves a
+completely working CLI behind: the bot adds a binary and a unit, and changes
+nothing the CLI depends on.
+
+The design notes, the measurements behind them and the deployment detail are in
+**[telegram_update.md](telegram_update.md)**.
 
 ## Layout
 
 ```
 cmd/kanji           the review CLI
+cmd/kanji-bot       the Telegram daemon: long poll, one session per chat
 cmd/kanjidata       the dictionary importer
 internal/kana       romaji → hiragana, and answer normalisation
 internal/importer   KANJIDIC2 and JMdict parsers, and the dictionary build
 internal/store      both SQLite databases, the schemas and every query
 internal/srs        the scheduler
-internal/review     queue assembly and grading — no terminal code at all
+internal/review     queue assembly, grading and the ask/drill state machine —
+                    no terminal code at all, which is what makes two
+                    front-ends cheap
+internal/telegram   Bot API client (stdlib only) and HTML message formatting
 internal/ui         the line-based interface
 ```
+
+Both front-ends are thin. `internal/review` decides what a typed line *means*
+— `review.ParseCommand` classifies it, `review.Turn` applies it and says what
+happened — and a front-end only chooses how to draw the result. `cmd/kanji`
+draws it with ANSI and indents; `cmd/kanji-bot` draws it as one HTML message.
 
 `make check` runs gofmt, vet and the tests the way CI would.
