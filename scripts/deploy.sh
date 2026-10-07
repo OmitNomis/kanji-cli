@@ -19,8 +19,14 @@
 # Environment:
 #   WITH_IMPORTER=1   also install kanjidata, so the target can rebuild the
 #                     dictionary itself when EDRDG publishes a new release
+#   WITH_BOT=1        also install kanji-bot and its systemd unit, which is the
+#                     Telegram front-end and the one thing here that is a daemon
 #   WITH_GREETING=1   print the due-review count when you log in to the target
 #   NO_KEY=1          skip key setup and let ssh prompt for each operation
+#
+# The bot needs a token, which this script never sees: the first WITH_BOT=1
+# deploy writes /etc/cli-kanji/bot.env with placeholders at mode 0600 and leaves
+# the service stopped until you fill it in. Later deploys do not touch it.
 #
 # Safe to re-run. The dictionary is only sent when it differs from the one
 # already installed, so a routine update moves 6 MB instead of 18 MB.
@@ -36,6 +42,7 @@ cd "$REPO_ROOT"
 
 TARGET="${1:-${KANJI_HOST:-}}"
 WITH_IMPORTER="${WITH_IMPORTER:-0}"
+WITH_BOT="${WITH_BOT:-0}"
 WITH_GREETING="${WITH_GREETING:-0}"
 NO_KEY="${NO_KEY:-0}"
 
@@ -99,6 +106,7 @@ PROBE="$(rsh <<'EOS'
 echo "arch=$(uname -m)"
 echo "kernel=$(uname -r)"
 echo "home=$HOME"
+echo "uid=$(id -u)"
 echo "lang=${LC_ALL:-${LC_CTYPE:-${LANG:-unset}}}"
 command -v gzip      >/dev/null && echo "gzip=yes"      || echo "gzip=no"
 command -v sha256sum >/dev/null && echo "sha256sum=yes" || echo "sha256sum=no"
@@ -107,13 +115,14 @@ command -v sha256sum >/dev/null && echo "sha256sum=yes" || echo "sha256sum=no"
 EOS
 )"
 
-REMOTE_ARCH= REMOTE_KERNEL= REMOTE_HOME= REMOTE_LANG=unset
+REMOTE_ARCH= REMOTE_KERNEL= REMOTE_HOME= REMOTE_LANG=unset REMOTE_UID=unknown
 HAS_GZIP=no HAS_SHA=no REMOTE_FREE_KB=0
 while IFS='=' read -r key value; do
 	case "$key" in
 		arch)      REMOTE_ARCH="$value" ;;
 		kernel)    REMOTE_KERNEL="$value" ;;
 		home)      REMOTE_HOME="$value" ;;
+		uid)       REMOTE_UID="$value" ;;
 		lang)      REMOTE_LANG="$value" ;;
 		gzip)      HAS_GZIP="$value" ;;
 		sha256sum) HAS_SHA="$value" ;;
@@ -160,9 +169,18 @@ BINARIES=(kanji)
 
 # EXTRA_BINARIES names further cmd/ packages to ship, so a new front-end can be
 # deployed without editing this script. A name with no package is skipped
-# rather than failing: that is what lets EXTRA_BINARIES=kanji-bot be wired up
-# before cmd/kanji-bot exists.
-for name in ${EXTRA_BINARIES:-}; do
+# rather than failing: that is what let EXTRA_BINARIES=kanji-bot be wired up
+# before cmd/kanji-bot existed. WITH_BOT=1 is the same thing said more plainly,
+# and it is what also installs the unit further down.
+EXTRA="${EXTRA_BINARIES:-}"
+(( WITH_BOT )) && EXTRA="$EXTRA kanji-bot"
+
+for name in $EXTRA; do
+	# A name asked for twice -- WITH_BOT=1 alongside EXTRA_BINARIES=kanji-bot --
+	# must not be built and sent twice.
+	for have in "${BINARIES[@]}"; do
+		[[ "$have" == "$name" ]] && continue 2
+	done
 	if [[ -d "cmd/$name" ]]; then
 		BINARIES+=("$name")
 	else
@@ -234,7 +252,99 @@ EOS
 for name in "${BINARIES[@]}"; do note "$BIN_DIR/$name"; done
 note "$DATA_DIR/dict.db"
 
-# ------------------------------------------------------------- 6. greeting
+# --------------------------------------------------------------- 6. service
+
+# The bot is the one part of this program that has to keep running, so it is
+# the one part that needs a unit. Everything here is idempotent: a re-deploy
+# rewrites the unit, leaves the token file alone, and restarts.
+INSTALLED_BOT=0
+for name in "${BINARIES[@]}"; do
+	if [[ "$name" == kanji-bot ]]; then INSTALLED_BOT=1; fi
+done
+
+if (( INSTALLED_BOT )); then
+	say "kanji-bot service"
+
+	if [[ "$REMOTE_UID" != 0 ]]; then
+		warn "not root on the target (uid $REMOTE_UID): skipping the unit"
+		warn "install it yourself from scripts/kanji-bot.service, or re-run as root"
+		INSTALLED_BOT=0
+	fi
+fi
+
+if (( INSTALLED_BOT )); then
+	# Substitute the paths this deploy actually used, so ReadWritePaths matches
+	# where the databases really are.
+	sed -e "s|@BIN_DIR@|$BIN_DIR|g" -e "s|@DATA_DIR@|$DATA_DIR|g" \
+		scripts/kanji-bot.service > dist/kanji-bot.service
+
+	remote "mkdir -p '$STAGING'"
+	scp -q "${SSH_OPTS[@]}" dist/kanji-bot.service "$TARGET:$STAGING/kanji-bot.service"
+
+	# The token must never be committed, never be passed as an argument, and
+	# never be overwritten by a deploy. A fresh file is created with
+	# placeholders; an existing one is left exactly as it is.
+	NEEDS_TOKEN="$(rsh <<EOS
+set -e
+mkdir -p /etc/cli-kanji
+if [ ! -f /etc/cli-kanji/bot.env ]; then
+	cat > /etc/cli-kanji/bot.env <<'ENV'
+# cli-kanji Telegram bot. Mode 0600: this file is a credential.
+#
+# TELEGRAM_BOT_TOKEN comes from @BotFather.
+# TELEGRAM_ALLOWED_CHAT_IDS is who may use the bot, comma separated. Empty
+# denies everyone, which is the only safe default. To find your own ID, message
+# the bot once and read the rejected ID out of: journalctl -u kanji-bot
+TELEGRAM_BOT_TOKEN=CHANGEME
+TELEGRAM_ALLOWED_CHAT_IDS=
+ENV
+fi
+chmod 0600 /etc/cli-kanji/bot.env
+chown root:root /etc/cli-kanji/bot.env 2>/dev/null || true
+
+install -m 0644 "$STAGING/kanji-bot.service" /etc/systemd/system/kanji-bot.service
+systemctl daemon-reload
+rm -rf "$STAGING"
+
+if grep -q 'CHANGEME' /etc/cli-kanji/bot.env; then
+	echo needs-token
+else
+	echo ready
+fi
+EOS
+)"
+
+	note "/etc/systemd/system/kanji-bot.service"
+
+	if [[ "$NEEDS_TOKEN" == *needs-token* ]]; then
+		# Starting it now would just crash-loop against a placeholder token.
+		warn "/etc/cli-kanji/bot.env has no token yet, so the service was not started"
+		note "fill it in:   ssh $TARGET nano /etc/cli-kanji/bot.env"
+		note "then:         ssh $TARGET systemctl enable --now kanji-bot"
+		INSTALLED_BOT=0
+	else
+		# enable is idempotent and restart covers the already-running case: the
+		# new binary is a new inode, so the old one runs until it is restarted.
+		rsh <<EOS
+set -e
+systemctl enable kanji-bot >/dev/null 2>&1 || true
+systemctl restart kanji-bot
+EOS
+		note "enabled and restarted"
+
+		# An unfilled allowlist is not an error -- the bot runs and refuses
+		# everyone, which is how the first chat ID is discovered -- but it is
+		# worth saying out loud, because the symptom otherwise is a bot that
+		# answers nothing.
+		if remote "grep -q '^TELEGRAM_ALLOWED_CHAT_IDS=\$' /etc/cli-kanji/bot.env"; then
+			warn "the allowlist is empty, so every chat is refused. Message the bot, then:"
+			warn "  ssh $TARGET \"journalctl -u kanji-bot | grep 'rejected chat'\""
+			warn "put that ID in /etc/cli-kanji/bot.env and restart the service"
+		fi
+	fi
+fi
+
+# ------------------------------------------------------------- 7. greeting
 
 if (( WITH_GREETING )); then
 	say "login greeting"
@@ -260,7 +370,7 @@ fi
 EOS
 fi
 
-# --------------------------------------------------------------- 7. verify
+# --------------------------------------------------------------- 8. verify
 
 say "verifying"
 remote "$BIN_DIR/kanji version" || die "the installed binary does not run"
@@ -272,7 +382,34 @@ case "${REMOTE_LANG,,}" in
 	*)              warn "locale is $REMOTE_LANG, not UTF-8 -- fine over SSH, but kanji may show as boxes on the target's own console" ;;
 esac
 
+if (( INSTALLED_BOT )); then
+	# is-active only says the process survived five seconds, which a bot with a
+	# rejected token does not: it logs the refusal and exits. So the real check
+	# is that it got as far as saying who it is.
+	if remote "systemctl is-active --quiet kanji-bot"; then
+		note "service  kanji-bot is active"
+	else
+		warn "kanji-bot is not active -- see: ssh $TARGET journalctl -u kanji-bot -n 50"
+	fi
+
+	AUTH="$(remote "journalctl -u kanji-bot --since '-2 min' --no-pager 2>/dev/null | grep -m1 'authenticated as' || true")"
+	if [[ -n "$AUTH" ]]; then
+		note "bot      ${AUTH#*] }"
+	else
+		warn "the bot has not logged an authentication yet; check the token in /etc/cli-kanji/bot.env"
+	fi
+fi
+
 say "ready"
 note "review now:   ssh $TARGET -t kanji"
+note "catch up:     ssh $TARGET -t kanji -cram -new-kanji 40"
 note "progress:     ssh $TARGET kanji stats"
 note "re-deploy:    scripts/deploy.sh $TARGET"
+
+if (( INSTALLED_BOT )); then
+	note "bot log:      ssh $TARGET journalctl -u kanji-bot -f"
+	note "bot restart:  ssh $TARGET systemctl restart kanji-bot"
+	note "rollback:     ssh $TARGET systemctl stop kanji-bot   # the CLI is untouched"
+	warn "test the allowlist by hand: message the bot from another account and"
+	warn "confirm it answers nothing but a flat refusal"
+fi

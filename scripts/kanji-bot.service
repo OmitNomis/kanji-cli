@@ -1,0 +1,41 @@
+# systemd unit for the cli-kanji Telegram front-end.
+#
+# scripts/deploy.sh installs this, substituting @BIN_DIR@ and @DATA_DIR@ for the
+# paths it actually used on the target. To install it by hand, replace those two
+# yourself and drop the result in /etc/systemd/system/kanji-bot.service.
+#
+# The token is NOT here: it lives in /etc/cli-kanji/bot.env at mode 0600, read
+# by EnvironmentFile. A command-line argument would be visible in ps to every
+# user on the box; this is not.
+
+[Unit]
+Description=cli-kanji Telegram bot
+Documentation=https://github.com/OmitNomis/cli-kanji
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=@BIN_DIR@/kanji-bot
+EnvironmentFile=/etc/cli-kanji/bot.env
+Restart=always
+RestartSec=5
+
+# The box has 988 MB and other work to do. The bot peaks well under this; the
+# limit is here so a leak is a restart rather than an OOM on the whole machine.
+MemoryMax=96M
+Nice=5
+
+# It needs the network, one database directory, and nothing else. Note that
+# ReadWritePaths has to widen if the progress database ever moves: WAL creates
+# -wal and -shm beside the file, so the directory itself must be writable.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=@DATA_DIR@
+
+[Install]
+WantedBy=multi-user.target

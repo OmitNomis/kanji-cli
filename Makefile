@@ -26,10 +26,10 @@ PLATFORMS := linux/386 linux/amd64 linux/arm64 windows/amd64 darwin/arm64
 
 all: build
 
-## build: compile both commands into bin/
+## build: compile every command into bin/
 build:
 	@mkdir -p $(BIN)
-	$(BUILD) -o $(BIN)/ ./cmd/kanji ./cmd/kanjidata
+	$(BUILD) -o $(BIN)/ ./cmd/kanji ./cmd/kanjidata ./cmd/kanji-bot
 
 ## fetch: download KANJIDIC2 and JMdict without building the dictionary
 fetch: build
