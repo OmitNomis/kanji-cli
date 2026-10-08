@@ -24,6 +24,10 @@ type Word struct {
 	Tags        []string
 	Common      int // 2 = ichi1/news1/spec1/gai1, 1 = tier two, 0 = neither
 	FreqRank    int // 1-48 from the nfXX buckets, else 25/60/999
+
+	// entries is how many JMdict entries MergeHomographs folded into this one,
+	// zero for an entry that was never merged.
+	entries int
 }
 
 // Priority tags. The JMdict tier-one tags cover the ~18k entries dictionaries

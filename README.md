@@ -113,9 +113,15 @@ dictionary carries all of it with grades attached:
 | **total** | **2,136** | the jōyō list exactly |
 
 On top of that: **175,594 compounds** — every JMdict entry with a kanji
-spelling, with all 475,564 kanji-to-word links. Of those, 25,406 are scheduled
+spelling, with all 475,564 kanji-to-word links. Of those, 24,275 are scheduled
 for review by default (JMdict's two "common" frequency tiers). The rest stay in
 the dictionary for `kanji info` and become reviewable with `-tier 0`.
+
+One spelling is one card. JMdict lists 人 as three words (じん, ひと, にん), and
+three cards showing the same 人 would leave each answer a guess, so entries that
+share a spelling are merged and accept every reading. A word spelled with a
+single jōyō kanji has no card of its own at all: its readings go on the kanji's
+card.
 
 Grades 9 and 10 (jinmeiyō, the name kanji) are imported so compounds can
 reference them, but never scheduled.
@@ -270,7 +276,7 @@ They are attached to one connection, so a query can join review state against
 dictionary rows in a single statement. Everything the review loop needs is
 precomputed at build time — including each answer's normalised form — so the
 Atom never converts kana to decide whether you were right. Selecting the next
-unlocked compound out of 25,406 candidates takes **under a millisecond**.
+unlocked compound out of 24,275 candidates takes **under a millisecond**.
 
 ## Rebuilding the dictionary
 

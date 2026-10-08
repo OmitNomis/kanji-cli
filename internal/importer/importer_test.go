@@ -313,3 +313,33 @@ func TestKanjiRunes(t *testing.T) {
 		}
 	}
 }
+
+func TestMergeHomographs(t *testing.T) {
+	words := []Word{
+		{Seq: 1, Surface: "人", Reading: "じん", Readings: []string{"じん"}, Glosses: []string{"-ian", "-er"}, Common: 2, FreqRank: 30},
+		{Seq: 2, Surface: "日本一", Reading: "にほんいち", Readings: []string{"にほんいち", "にっぽんいち"}, Glosses: []string{"Japan's best"}, Common: 2},
+		{Seq: 3, Surface: "人", Reading: "ひと", Readings: []string{"ひと"}, Glosses: []string{"person", "mankind"}, Common: 2, FreqRank: 10},
+		{Seq: 4, Surface: "人", Reading: "にん", Readings: []string{"にん", "ひと"}, Glosses: []string{"counter for people"}, Common: 1, FreqRank: 5},
+	}
+	got := MergeHomographs(words)
+
+	if len(got) != 2 {
+		t.Fatalf("got %d entries, want 2: %+v", len(got), got)
+	}
+	hito := got[0]
+	if hito.Seq != 3 {
+		t.Errorf("merged 人 kept seq %d, want 3, the most common entry", hito.Seq)
+	}
+	if want := []string{"ひと", "じん", "にん"}; !reflect.DeepEqual(hito.Readings, want) {
+		t.Errorf("merged 人 readings = %v, want %v", hito.Readings, want)
+	}
+	if want := []string{"person", "-ian", "counter for people"}; !reflect.DeepEqual(hito.Glosses, want) {
+		t.Errorf("merged 人 glosses = %v, want %v, one sense per entry", hito.Glosses, want)
+	}
+	if hito.entries != 3 {
+		t.Errorf("merged 人 entries = %d, want 3", hito.entries)
+	}
+	if !reflect.DeepEqual(got[1], words[1]) {
+		t.Errorf("a spelling with one entry changed: %+v", got[1])
+	}
+}

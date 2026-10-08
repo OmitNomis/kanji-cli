@@ -247,6 +247,14 @@ type Counts struct {
 	ByLevel [srs.MaxLevel + 1]int
 }
 
+// inDict limits a query on review to items the dictionary still has.
+//
+// A rebuild can retire an item: entries that share a spelling are merged into
+// one, and a word spelled with a single kanji is folded into that kanji's card.
+// Its progress row stays, so pointing at an older dictionary brings it back,
+// but it can never be asked again and must not be counted as due.
+const inDict = `item_key IN (SELECT key FROM ` + DictAlias + `.item)`
+
 // Counts gathers the queue summary in one round trip per figure. There are only
 // a handful, and they run against indexed integer columns.
 func (s *Store) Counts(ctx context.Context, now time.Time) (Counts, error) {
@@ -259,12 +267,12 @@ func (s *Store) Counts(ctx context.Context, now time.Time) (Counts, error) {
 	}{
 		{&c.DictKanjiItems, `SELECT count(*) FROM ` + DictAlias + `.item WHERE kind = 'kanji'`, nil},
 		{&c.DictWordItems, `SELECT count(*) FROM ` + DictAlias + `.item WHERE kind = 'word'`, nil},
-		{&c.InProgress, `SELECT count(*) FROM review`, nil},
-		{&c.KanjiInProgress, `SELECT count(*) FROM review WHERE item_key LIKE 'k:%'`, nil},
-		{&c.WordsInProgress, `SELECT count(*) FROM review WHERE item_key LIKE 'w:%'`, nil},
-		{&c.Due, `SELECT count(*) FROM review WHERE due_at <= ?`, []any{now.Unix()}},
-		{&c.Burned, `SELECT count(*) FROM review WHERE level >= ?`, []any{srs.MaxLevel}},
-		{&c.Leeches, `SELECT count(*) FROM review WHERE lapses >= ?`, []any{srs.LeechLapses}},
+		{&c.InProgress, `SELECT count(*) FROM review WHERE ` + inDict, nil},
+		{&c.KanjiInProgress, `SELECT count(*) FROM review WHERE item_key LIKE 'k:%' AND ` + inDict, nil},
+		{&c.WordsInProgress, `SELECT count(*) FROM review WHERE item_key LIKE 'w:%' AND ` + inDict, nil},
+		{&c.Due, `SELECT count(*) FROM review WHERE due_at <= ? AND ` + inDict, []any{now.Unix()}},
+		{&c.Burned, `SELECT count(*) FROM review WHERE level >= ? AND ` + inDict, []any{srs.MaxLevel}},
+		{&c.Leeches, `SELECT count(*) FROM review WHERE lapses >= ? AND ` + inDict, []any{srs.LeechLapses}},
 	}
 	for _, sc := range scalars {
 		if err := s.db.QueryRowContext(ctx, sc.query, sc.args...).Scan(sc.dst); err != nil {
@@ -272,7 +280,7 @@ func (s *Store) Counts(ctx context.Context, now time.Time) (Counts, error) {
 		}
 	}
 
-	rows, err := s.db.QueryContext(ctx, `SELECT level, count(*) FROM review GROUP BY level`)
+	rows, err := s.db.QueryContext(ctx, `SELECT level, count(*) FROM review WHERE `+inDict+` GROUP BY level`)
 	if err != nil {
 		return c, fmt.Errorf("count by level: %w", err)
 	}
@@ -341,7 +349,7 @@ func (s *Store) Activity(ctx context.Context, since time.Time) (Activity, error)
 func (s *Store) NextDue(ctx context.Context, now time.Time) (time.Time, bool, error) {
 	var unix sql.NullInt64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT min(due_at) FROM review WHERE due_at > ?`, now.Unix()).Scan(&unix)
+		`SELECT min(due_at) FROM review WHERE due_at > ? AND `+inDict, now.Unix()).Scan(&unix)
 	if err != nil {
 		return time.Time{}, false, fmt.Errorf("query next due: %w", err)
 	}
@@ -393,9 +401,10 @@ func (s *Store) SetSetting(ctx context.Context, key, value string) error {
 // Lookup finds items whose prompt matches a kanji or compound exactly, for the
 // browse and lookup commands.
 //
-// A prompt can have several entries: 日 is a kanji and also two separate JMdict
-// words, ひ and にち. The kanji sorts first, since it is the character the
-// others are built from.
+// A prompt can have several entries: 日 is a kanji, and in a dictionary built
+// before homographs were merged it is also two separate JMdict words, ひ and
+// にち. The kanji sorts first, since it is the character the others are built
+// from.
 func (s *Store) Lookup(ctx context.Context, prompt string, limit int) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+itemColumns+`

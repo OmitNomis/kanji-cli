@@ -410,6 +410,37 @@ func TestCountsAndIntroducedSince(t *testing.T) {
 	}
 }
 
+// A rebuild can retire an item, merging it into another. Its progress row is
+// kept but must not count, or the banner would promise cards that never come.
+func TestCountsIgnoreRetiredItems(t *testing.T) {
+	ctx := context.Background()
+	s := fixture(t)
+
+	learn(t, s, "日", 2)
+	if err := s.Save(ctx, "w:999999", srs.State{Level: 1, DueAt: testNow.Add(-time.Minute), AddedAt: testNow}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := s.Save(ctx, "w:999998", srs.State{Level: 1, DueAt: testNow.Add(time.Minute), AddedAt: testNow}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	c, err := s.Counts(ctx, testNow)
+	if err != nil {
+		t.Fatalf("Counts: %v", err)
+	}
+	if c.InProgress != 1 || c.WordsInProgress != 0 || c.Due != 0 || c.ByLevel[1] != 0 {
+		t.Errorf("counts = %+v, want only k:日 in progress and nothing due", c)
+	}
+
+	next, ok, err := s.NextDue(ctx, testNow)
+	if err != nil {
+		t.Fatalf("NextDue: %v", err)
+	}
+	if !ok || !next.Equal(testNow.Add(time.Hour)) {
+		t.Errorf("NextDue = %v (%v), want k:日's %v", next, ok, testNow.Add(time.Hour))
+	}
+}
+
 func TestNextDue(t *testing.T) {
 	ctx := context.Background()
 	s := fixture(t)
