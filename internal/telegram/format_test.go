@@ -51,12 +51,11 @@ func TestCardShowsTheReadingOnlyWhileNew(t *testing.T) {
 func TestCardCarriesThePromptAndTheQueuePosition(t *testing.T) {
 	msg := Card(14, 60, 312, card(4))
 
-	// The prompt is monospaced so a phone does not reflow it, and spaced so
-	// each character reads as itself.
-	if !strings.Contains(msg, "<code>写 真</code>") {
-		t.Errorf("prompt is not monospaced and spaced:\n%s", msg)
+	// The prompt is bold, and spaced so each character reads as itself.
+	if !strings.Contains(msg, "<b>写 真</b>") {
+		t.Errorf("prompt is not bold and spaced:\n%s", msg)
 	}
-	for _, want := range []string{"14/60", "word", "familiar", "312 left"} {
+	for _, want := range []string{"14/60", "word", "🍀 familiar", "312 left", "▰▰▱▱▱▱▱▱▱▱"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("card is missing %q:\n%s", want, msg)
 		}
@@ -128,6 +127,41 @@ func TestHelpListsTheCommands(t *testing.T) {
 	for _, cmd := range []string{"/review", "/cram", "/reveal", "/skip", "/info", "/stats", "/stop"} {
 		if !strings.Contains(help, cmd) {
 			t.Errorf("help does not mention %s", cmd)
+		}
+	}
+}
+
+func TestBarNeverRoundsProgressAway(t *testing.T) {
+	for _, tc := range []struct {
+		have, total int
+		want        string
+	}{
+		{0, 10, "▱▱▱▱▱"},
+		{1, 1000, "▰▱▱▱▱"},
+		{5, 10, "▰▰▱▱▱"},
+		{10, 10, "▰▰▰▰▰"},
+		{12, 10, "▰▰▰▰▰"},
+		{3, 0, "▱▱▱▱▱"},
+	} {
+		if got := bar(tc.have, tc.total, 5); got != tc.want {
+			t.Errorf("bar(%d, %d) = %s, want %s", tc.have, tc.total, got, tc.want)
+		}
+	}
+}
+
+// Every message goes out in HTML mode, where Telegram rejects the whole message
+// over one unbalanced tag. The gloss and the typed answer are the untrusted
+// parts, so hostile ones must still come out balanced.
+func TestFeedbackTagsBalance(t *testing.T) {
+	c := card(2)
+	c.Gloss = "</blockquote><b>"
+	res := review.Result{Normalized: "<s>", Before: srs.State{Level: 2}, After: srs.State{Level: 1}}
+	for _, msg := range []string{Wrong(res, c), Revealed(res, c), Correct(res, c), Info(c.Item, []store.Item{c.Item})} {
+		for _, tag := range []string{"b", "i", "s", "code", "blockquote"} {
+			open := strings.Count(msg, "<"+tag+">") + strings.Count(msg, "<"+tag+" ")
+			if closed := strings.Count(msg, "</"+tag+">"); open != closed {
+				t.Errorf("<%s> opened %d times, closed %d:\n%s", tag, open, closed, msg)
+			}
 		}
 	}
 }

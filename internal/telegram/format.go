@@ -21,8 +21,8 @@ import (
 // all of them teaches nothing.
 const maxReadings = 6
 
-// maxCompounds bounds the compound list in a lookup, which has to fit on a
-// phone screen rather than in a terminal.
+// maxCompounds bounds the compound list in a lookup. It starts collapsed, but
+// opened on a phone a long one is still a long scroll.
 const maxCompounds = 8
 
 // Escape makes text safe inside HTML. Telegram's HTML mode needs exactly these
@@ -53,23 +53,20 @@ func Join(blocks ...string) string {
 // in the message -- not in a footer, not in a preview, not as a hint about how
 // long it is.
 func Card(position, total, remaining int, c store.Card) string {
-	kind := "word"
-	if c.IsKanji() {
-		kind = fmt.Sprintf("kanji · grade %d", c.Grade)
-	}
-
 	var b strings.Builder
-	fmt.Fprintf(&b, "<b>%d/%d</b> · %s · %s", position, total, kind, srs.LevelName(c.State.Level))
-	if remaining > 0 {
-		fmt.Fprintf(&b, " · %d left", remaining)
-	}
+	fmt.Fprintf(&b, "%s  ·  %s", kindBadge(c.Item), levelBadge(c.State.Level))
 
-	// Monospace keeps the characters from being reflowed and renders them big
-	// enough to read on a phone.
-	fmt.Fprintf(&b, "\n\n<code>%s</code>", Escape(ui.Spaced(c.Prompt)))
+	// Bold rather than monospace: Telegram sets code a size smaller, and the
+	// prompt is the one thing in the message that has to read at a glance.
+	fmt.Fprintf(&b, "\n\n<b>%s</b>", Escape(ui.Spaced(c.Prompt)))
 
 	if srs.ShowHint(c.State.Level) && c.Hint != "" {
-		fmt.Fprintf(&b, "\n\nreading <b>%s</b>", Escape(c.Hint))
+		fmt.Fprintf(&b, "\n💡 <i>%s</i>", Escape(c.Hint))
+	}
+
+	fmt.Fprintf(&b, "\n\n<code>%s</code>  %d/%d", bar(position-1, total, 10), position, total)
+	if remaining > 0 {
+		fmt.Fprintf(&b, " · %s left", ui.Count(remaining))
 	}
 	return b.String()
 }
@@ -77,31 +74,27 @@ func Card(position, total, remaining int, c store.Card) string {
 // Correct reports a right answer.
 func Correct(res review.Result, c store.Card) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "✓ <b>%s</b>", Escape(res.Matched))
-	if c.Gloss != "" {
-		fmt.Fprintf(&b, "\n%s", Escape(c.Gloss))
-	}
+	fmt.Fprintf(&b, "✅ <b>%s</b>", Escape(res.Matched))
 	if others := otherReadings(c.Answers, res.Matched); others != "" {
-		fmt.Fprintf(&b, "\nalso %s", Escape(others))
+		fmt.Fprintf(&b, "  <i>also %s</i>", Escape(others))
 	}
-	fmt.Fprintf(&b, "\n<i>%s</i>", Escape(progression(res)))
+	b.WriteString(gloss(c.Gloss))
+	fmt.Fprintf(&b, "\n%s", progression(res))
 	return b.String()
 }
 
 // Wrong reports a wrong answer and what the reading actually was.
 func Wrong(res review.Result, c store.Card) string {
-	typed := res.Normalized
-	if typed == "" {
-		typed = "(nothing)"
+	typed := "<i>(nothing)</i>"
+	if res.Normalized != "" {
+		typed = "<s>" + Escape(res.Normalized) + "</s>"
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "✗ you typed %s", Escape(typed))
+	fmt.Fprintf(&b, "❌ %s", typed)
 	fmt.Fprintf(&b, "\n%s is <b>%s</b>", Escape(c.Prompt), Escape(readings(c.Answers)))
-	if c.Gloss != "" {
-		fmt.Fprintf(&b, "\n%s", Escape(c.Gloss))
-	}
-	fmt.Fprintf(&b, "\n<i>%s</i>", Escape(progression(res)))
+	b.WriteString(gloss(c.Gloss))
+	fmt.Fprintf(&b, "\n%s", progression(res))
 	return b.String()
 }
 
@@ -109,11 +102,9 @@ func Wrong(res review.Result, c store.Card) string {
 // wrong because being told is not knowing.
 func Revealed(res review.Result, c store.Card) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "· %s is <b>%s</b>", Escape(c.Prompt), Escape(readings(c.Answers)))
-	if c.Gloss != "" {
-		fmt.Fprintf(&b, "\n%s", Escape(c.Gloss))
-	}
-	fmt.Fprintf(&b, "\n<i>%s</i>", Escape(progression(res)))
+	fmt.Fprintf(&b, "👀 %s is <b>%s</b>", Escape(c.Prompt), Escape(readings(c.Answers)))
+	b.WriteString(gloss(c.Gloss))
+	fmt.Fprintf(&b, "\n%s", progression(res))
 	return b.String()
 }
 
@@ -123,102 +114,98 @@ func Revealed(res review.Result, c store.Card) string {
 // and it preserves the one rule the program is built around: you produce the
 // kana, or you do not. There is no button to press instead, because tapping a
 // button is multiple choice.
-func Drill() string { return "<b>type it to carry on</b>  ·  /skip to move on" }
+func Drill() string { return "✍️ <b>type it to carry on</b>  ·  /skip to move on" }
 
 // Mistyped tells the reviewer a retype did not match, naming one reading to aim
 // at. The reading is already on screen by this point, so nothing is given away.
 func Mistyped(c store.Card) string {
 	if len(c.Answers) == 0 {
-		return "✗ not that"
+		return "❌ not that"
 	}
-	return fmt.Sprintf("✗ type <b>%s</b>", Escape(c.Answers[0]))
+	return fmt.Sprintf("❌ not quite, type <b>%s</b>", Escape(c.Answers[0]))
 }
 
 // Retyped acknowledges a successful retype without re-reporting the answer.
-func Retyped() string { return "✓ got it" }
+func Retyped() string { return "👍 got it" }
 
 // Skipped acknowledges a card passed over, so a skip is never silent.
-func Skipped() string { return "· skipped" }
+func Skipped() string { return "⏭ skipped" }
 
 // Info is a dictionary entry and the compounds that use it.
 func Info(it store.Item, compounds []store.Item) string {
-	kind := "word"
-	if it.IsKanji() {
-		kind = fmt.Sprintf("kanji · grade %d", it.Grade)
-	}
-
 	var b strings.Builder
-	fmt.Fprintf(&b, "<b>%s</b> · %s", Escape(it.Prompt), kind)
-	fmt.Fprintf(&b, "\n\nreadings <b>%s</b>", Escape(strings.Join(it.Answers, ", ")))
+	fmt.Fprintf(&b, "<b>%s</b>  ·  %s", Escape(it.Prompt), kindBadge(it))
+	fmt.Fprintf(&b, "\n\n🔊 <b>%s</b>", Escape(strings.Join(it.Answers, ", ")))
 
 	// Only a kanji's hint adds anything: it keeps the on/kun split and the
 	// okurigana markers that the flattened answer list throws away.
 	if it.IsKanji() && it.Hint != "" {
 		fmt.Fprintf(&b, "\n<i>%s</i>", Escape(it.Hint))
 	}
-	fmt.Fprintf(&b, "\nmeaning %s", Escape(it.Gloss))
+	b.WriteString(gloss(it.Gloss))
 
 	if len(compounds) > 0 {
-		b.WriteString("\n\ncompounds\n<pre>")
-		for _, w := range compounds[:min(len(compounds), maxCompounds)] {
-			fmt.Fprintf(&b, "%s  %s  %s\n",
-				Escape(ui.Pad(w.Prompt, 8)),
-				Escape(ui.Pad(ui.Truncate(firstReading(w), 12), 12)),
-				Escape(ui.Truncate(w.Gloss, 28)))
+		// Expandable, so a lookup in the middle of a session does not push the
+		// card being answered off the screen.
+		b.WriteString("\n\n📚 <b>compounds</b>\n<blockquote expandable>")
+		for i, w := range compounds[:min(len(compounds), maxCompounds)] {
+			if i > 0 {
+				b.WriteString("\n")
+			}
+			fmt.Fprintf(&b, "<b>%s</b> %s · <i>%s</i>",
+				Escape(w.Prompt), Escape(firstReading(w)), Escape(ui.Truncate(w.Gloss, 40)))
 		}
-		b.WriteString("</pre>")
+		b.WriteString("</blockquote>")
 	}
 	return b.String()
 }
 
 // NoEntry is the answer to a lookup that found nothing.
 func NoEntry(target string) string {
-	return fmt.Sprintf("no entry for %s", Escape(target))
+	return fmt.Sprintf("🤷 no entry for %s", Escape(target))
 }
 
 // Banner opens a session with where the queue stands.
 func Banner(c store.Counts, cram bool) string {
-	label := "review"
+	label := "🎴 <b>review</b>"
 	if cram {
-		label = "cram · due times ignored"
+		label = "⚡ <b>cram</b> · due times ignored"
 	}
-	return fmt.Sprintf("<b>%s</b>\n%s due · %s in progress · %s burned",
+	return fmt.Sprintf("%s\n🔔 %s due · 📚 %s in progress · 🔥 %s burned",
 		label, ui.Count(c.Due), ui.Count(c.InProgress), ui.Count(c.Burned))
 }
 
 // NothingDue closes the door politely, and points at the one way past it.
 func NothingDue(nextDue time.Time, hasNext bool, now time.Time) string {
 	if hasNext {
-		return fmt.Sprintf("nothing due. next review in %s.\n\n/cram goes through the queue anyway.",
+		return fmt.Sprintf("😴 nothing due. next review in <b>%s</b>.\n\n/cram goes through the queue anyway.",
 			ui.Duration(nextDue.Sub(now)))
 	}
-	return "nothing due and nothing scheduled."
+	return "😴 nothing due and nothing scheduled."
 }
 
 // Summary closes a session.
 func Summary(s *review.Session, c store.Counts, nextDue time.Time, hasNext bool, now time.Time) string {
 	var b strings.Builder
-	b.WriteString("<b>session</b>")
+	b.WriteString("🏁 <b>session done</b>")
 
 	if s.Answered == 0 {
 		b.WriteString("\nnothing answered")
 	} else {
-		fmt.Fprintf(&b, "\n%d answered · %d correct · %.0f%% accuracy",
-			s.Answered, s.Correct, s.Accuracy()*100)
-		if s.Incorrect > 0 {
-			fmt.Fprintf(&b, "\n%d missed", s.Incorrect)
-		}
+		fmt.Fprintf(&b, "\n✅ %d correct · ❌ %d missed", s.Correct, s.Incorrect)
+		fmt.Fprintf(&b, "\n🎯 <code>%s</code> %.0f%% of %d",
+			bar(s.Correct, s.Answered, 10), s.Accuracy()*100, s.Answered)
 		if s.Introduced.Kanji > 0 || s.Introduced.Words > 0 {
-			fmt.Fprintf(&b, "\nintroduced %d kanji and %d compounds",
+			fmt.Fprintf(&b, "\n🌱 introduced %d kanji and %d compounds",
 				s.Introduced.Kanji, s.Introduced.Words)
 		}
 	}
 
 	switch {
 	case c.Due > 0:
-		fmt.Fprintf(&b, "\n<b>%s still due</b>", ui.Count(c.Due))
+		fmt.Fprintf(&b, "\n🔔 <b>%s still due</b>", ui.Count(c.Due))
 	case hasNext:
-		fmt.Fprintf(&b, "\nnext review in %s", ui.Duration(nextDue.Sub(now)))
+		fmt.Fprintf(&b, "\n⏰ next review in %s", ui.Duration(nextDue.Sub(now)))
 	}
 	return b.String()
 }
@@ -227,37 +214,43 @@ func Summary(s *review.Session, c store.Counts, nextDue time.Time, hasNext bool,
 // queue across the ladder, and what the last week looked like.
 func Stats(c store.Counts, week store.Activity, nextDue time.Time, hasNext bool, now time.Time) string {
 	var b strings.Builder
-	b.WriteString("<b>progress</b>\n<pre>")
-	fmt.Fprintf(&b, "kanji      %7s / %s\n", ui.Count(c.KanjiInProgress), ui.Count(c.DictKanjiItems))
-	fmt.Fprintf(&b, "compounds  %7s / %s\n", ui.Count(c.WordsInProgress), ui.Count(c.DictWordItems))
-	b.WriteString("</pre>")
+	b.WriteString("📊 <b>progress</b>\n")
+	fmt.Fprintf(&b, "\n✍️ kanji <code>%s</code> %s / %s",
+		bar(c.KanjiInProgress, c.DictKanjiItems, 10), ui.Count(c.KanjiInProgress), ui.Count(c.DictKanjiItems))
+	fmt.Fprintf(&b, "\n📖 words <code>%s</code> %s / %s",
+		bar(c.WordsInProgress, c.DictWordItems, 10), ui.Count(c.WordsInProgress), ui.Count(c.DictWordItems))
 
-	ladder := strings.Builder{}
-	for level := 0; level <= srs.MaxLevel; level++ {
-		if c.ByLevel[level] == 0 {
-			continue
+	// The ladder groups levels by name, which is what a level means to the
+	// reviewer: ten numbers would be noise.
+	var ladder []string
+	name, n := "", 0
+	flush := func() {
+		if n > 0 {
+			ladder = append(ladder, fmt.Sprintf("%s %s <b>%s</b>", levelEmoji(name), name, ui.Count(n)))
 		}
-		fmt.Fprintf(&ladder, "%s %6s\n",
-			ui.Pad(fmt.Sprintf("lvl %d %s", level, srs.LevelName(level)), 16),
-			ui.Count(c.ByLevel[level]))
 	}
-	if ladder.Len() > 0 {
-		fmt.Fprintf(&b, "\n<pre>%s</pre>", ladder.String())
+	for level := 0; level <= srs.MaxLevel; level++ {
+		if ln := srs.LevelName(level); ln != name {
+			flush()
+			name, n = ln, 0
+		}
+		n += c.ByLevel[level]
+	}
+	flush()
+	if len(ladder) > 0 {
+		fmt.Fprintf(&b, "\n\n%s", strings.Join(ladder, "\n"))
 	}
 
-	fmt.Fprintf(&b, "\n\ndue now <b>%s</b>", ui.Count(c.Due))
-	if c.Burned > 0 {
-		fmt.Fprintf(&b, "\nburned %s", ui.Count(c.Burned))
+	fmt.Fprintf(&b, "\n\n🔔 due now <b>%s</b>", ui.Count(c.Due))
+	if c.Due == 0 && hasNext {
+		fmt.Fprintf(&b, " · next in %s", ui.Duration(nextDue.Sub(now)))
 	}
 	if c.Leeches > 0 {
-		fmt.Fprintf(&b, "\nleeches %s (forgotten %d+ times)", ui.Count(c.Leeches), srs.LeechLapses)
+		fmt.Fprintf(&b, "\n🐛 %s leeches <i>(forgotten %d+ times)</i>", ui.Count(c.Leeches), srs.LeechLapses)
 	}
 	if week.Answered > 0 {
-		fmt.Fprintf(&b, "\nlast 7 days %s answers over %d days, %.0f%% correct",
+		fmt.Fprintf(&b, "\n📅 last 7 days: %s answers over %d days, %.0f%% correct",
 			ui.Count(week.Answered), week.Days, week.Accuracy()*100)
-	}
-	if c.Due == 0 && hasNext {
-		fmt.Fprintf(&b, "\nnext in %s", ui.Duration(nextDue.Sub(now)))
 	}
 	return b.String()
 }
@@ -269,24 +262,81 @@ func Stats(c store.Counts, week store.Activity, nextDue time.Time, hasNext bool,
 // take that away.
 func Help() string {
 	return strings.Join([]string{
-		"<b>cli-kanji</b>",
+		"🎴 <b>cli-kanji</b>",
 		"",
 		"Type the reading — kana or romaji, whatever your keyboard gives you. Anything not starting with a slash is an answer.",
 		"",
-		"/review — start or resume a session",
-		"/cram — ignore due times and work through the queue now",
-		"/reveal — show the reading, graded as wrong",
-		"/skip — skip without grading",
-		"/info 国境 — an entry and the compounds that use it",
-		"/stats — progress",
-		"/stop — end the session",
+		"▶️ /review — start or resume a session",
+		"⚡ /cram — ignore due times and work through the queue now",
+		"👀 /reveal — show the reading, graded as wrong",
+		"⏭ /skip — skip without grading",
+		"🔍 /info 国境 — an entry and the compounds that use it",
+		"📊 /stats — progress",
+		"⏹ /stop — end the session",
 	}, "\n")
 }
 
 // NoSession is the answer to an answer with nothing to answer.
-func NoSession() string { return "no session. /review to start, or /cram to ignore due times." }
+func NoSession() string {
+	return "💤 no session. /review to start, or /cram to ignore due times."
+}
 
-// progression describes what an answer did to an item's schedule.
+// kindBadge names what a prompt is. Without it a bare 本 is ambiguous in a way
+// that changes the right answer: as a kanji it accepts ほん or もと, as a word
+// only ほん.
+func kindBadge(it store.Item) string {
+	if it.IsKanji() {
+		return fmt.Sprintf("✍️ kanji · grade %d", it.Grade)
+	}
+	return "📖 word"
+}
+
+// levelBadge is a level's name with its emoji.
+func levelBadge(level int) string {
+	name := srs.LevelName(level)
+	return levelEmoji(name) + " " + name
+}
+
+// levelEmoji gives each rung of the ladder a picture that grows as the item
+// does, so how well a card is known reads before any text does.
+func levelEmoji(name string) string {
+	switch name {
+	case "new":
+		return "🌱"
+	case "learning":
+		return "🌿"
+	case "familiar":
+		return "🍀"
+	case "known":
+		return "🌳"
+	case "solid":
+		return "💎"
+	case "burned":
+		return "🔥"
+	}
+	return "·"
+}
+
+// gloss sets a meaning off as a quote, which Telegram draws with a bar down the
+// side: what the word means stays apart from what you typed.
+func gloss(s string) string {
+	if s == "" {
+		return ""
+	}
+	return "\n<blockquote>" + Escape(s) + "</blockquote>"
+}
+
+// bar draws have/total as a row of cells, never rounding progress that exists
+// down to nothing.
+func bar(have, total, cells int) string {
+	filled := 0
+	if total > 0 && have > 0 {
+		filled = max(1, min(cells, have*cells/total))
+	}
+	return strings.Repeat("▰", filled) + strings.Repeat("▱", cells-filled)
+}
+
+// progression describes what an answer did to an item's schedule, as HTML.
 func progression(res review.Result) string {
 	before := srs.LevelName(res.Before.Level)
 	after := srs.LevelName(res.After.Level)
@@ -294,7 +344,7 @@ func progression(res review.Result) string {
 	if before != after {
 		move = before + " → " + after
 	}
-	return fmt.Sprintf("%s · back in %s", move, ui.Duration(time.Until(res.After.DueAt)))
+	return fmt.Sprintf("%s %s · ⏰ back in %s", levelEmoji(after), Escape(move), ui.Duration(time.Until(res.After.DueAt)))
 }
 
 // readings lists a card's accepted readings, bounded.

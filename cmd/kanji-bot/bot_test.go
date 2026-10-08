@@ -145,7 +145,7 @@ func TestReviewAsksAnswersAndPersists(t *testing.T) {
 		t.Fatalf("/review sent %d messages, want 1", len(rec.messages))
 	}
 	opening := rec.messages[0].text
-	if !strings.Contains(opening, "<code>日</code>") {
+	if !strings.Contains(opening, "<b>日</b>") {
 		t.Fatalf("the card was not asked:\n%s", opening)
 	}
 	if b.chats[mine] == nil {
@@ -158,7 +158,7 @@ func TestReviewAsksAnswersAndPersists(t *testing.T) {
 		t.Fatalf("an answer sent %d messages in total, want 2", len(rec.messages))
 	}
 	feedback := rec.messages[1].text
-	if !strings.Contains(feedback, "✓") {
+	if !strings.Contains(feedback, "✅") {
 		t.Errorf("a correct answer was not acknowledged:\n%s", feedback)
 	}
 
