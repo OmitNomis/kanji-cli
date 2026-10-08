@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/OmitNomis/cli-kanji/internal/review"
 	"github.com/OmitNomis/cli-kanji/internal/srs"
@@ -104,6 +105,10 @@ func run(args []string) error {
 		in:     bufio.NewScanner(os.Stdin),
 		opts:   o,
 		echoes: ui.IsTerminal(os.Stdin),
+	}
+
+	if app.echoes {
+		defer ui.EditUTF8(os.Stdin)()
 	}
 
 	switch command {
@@ -350,17 +355,28 @@ func (a *app) nothingDue(ctx context.Context, now time.Time) error {
 }
 
 // read prints a prompt and returns a line, or false at end of input.
+//
+// A line that is not valid UTF-8 is asked for again rather than graded. It only
+// happens when the terminal's line editor backspaced through half a kana, so
+// what arrived is not what the screen showed, and marking it wrong would cost a
+// card for the terminal's mistake.
 func (a *app) read(label string) (string, bool) {
-	a.out.Ask(label)
-	if !a.in.Scan() {
-		// Ctrl-D, or a pipe running dry.
-		fmt.Println()
-		return "", false
+	for {
+		a.out.Ask(label)
+		if !a.in.Scan() {
+			// Ctrl-D, or a pipe running dry.
+			fmt.Println()
+			return "", false
+		}
+		if !a.echoes {
+			fmt.Println()
+		}
+		line := a.in.Text()
+		if utf8.ValidString(line) {
+			return strings.TrimSpace(line), true
+		}
+		a.out.Garbled()
 	}
-	if !a.echoes {
-		fmt.Println()
-	}
-	return strings.TrimSpace(a.in.Text()), true
 }
 
 func (a *app) config() (review.Config, error) {

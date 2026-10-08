@@ -171,6 +171,12 @@ func (r *Renderer) Rejected(c store.Card) {
 	r.printf("%s%s  %s\n", noteIndent, r.style.Red("✗"), r.style.Dim("type "+target))
 }
 
+// Garbled says a line came through mangled and has to be typed again. Nothing
+// was graded, so it says so.
+func (r *Renderer) Garbled() {
+	r.printf("%s%s\n", noteIndent, r.style.Yellow("that came through garbled, not graded: type it again"))
+}
+
 // Accepted acknowledges a successful drill retype without re-reporting the
 // whole answer.
 func (r *Renderer) Accepted() {
