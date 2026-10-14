@@ -60,7 +60,10 @@ func Card(position, total, remaining int, c store.Card) string {
 	// prompt is the one thing in the message that has to read at a glance.
 	fmt.Fprintf(&b, "\n\n<b>%s</b>", Escape(ui.Spaced(c.Prompt)))
 
-	if srs.ShowHint(c.State.Level) && c.Hint != "" {
+	if c.Probe {
+		b.WriteString("\n🎯 <i>first look: read it if you can, /reveal if not</i>")
+	}
+	if c.HintShown() && c.Hint != "" {
 		fmt.Fprintf(&b, "\n💡 <i>%s</i>", Escape(c.Hint))
 	}
 
@@ -75,6 +78,9 @@ func Card(position, total, remaining int, c store.Card) string {
 func Correct(res review.Result, c store.Card) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "✅ <b>%s</b>", Escape(res.Matched))
+	if res.Placed {
+		b.WriteString("  ⏩ <i>already known</i>")
+	}
 	if others := otherReadings(c.Answers, res.Matched); others != "" {
 		fmt.Fprintf(&b, "  <i>also %s</i>", Escape(others))
 	}
@@ -166,9 +172,12 @@ func NoEntry(target string) string {
 }
 
 // Banner opens a session with where the queue stands.
-func Banner(c store.Counts, cram bool) string {
+func Banner(c store.Counts, pace review.Pace) string {
 	label := "🎴 <b>review</b>"
-	if cram {
+	switch pace {
+	case review.Ahead:
+		label = "⏩ <b>review ahead</b> · the next day's cards too"
+	case review.Cram:
 		label = "⚡ <b>cram</b> · due times ignored"
 	}
 	return fmt.Sprintf("%s\n🔔 %s due · 📚 %s in progress · 🔥 %s burned",
@@ -178,7 +187,7 @@ func Banner(c store.Counts, cram bool) string {
 // NothingDue closes the door politely, and points at the one way past it.
 func NothingDue(nextDue time.Time, hasNext bool, now time.Time) string {
 	if hasNext {
-		return fmt.Sprintf("😴 nothing due. next review in <b>%s</b>.\n\n/cram goes through the queue anyway.",
+		return fmt.Sprintf("😴 nothing due. next review in <b>%s</b>.\n\n/ahead reviews what is coming up instead of waiting.",
 			ui.Duration(nextDue.Sub(now)))
 	}
 	return "😴 nothing due and nothing scheduled."
@@ -267,12 +276,15 @@ func Help() string {
 		"Type the reading — kana or romaji, whatever your keyboard gives you. Anything not starting with a slash is an answer.",
 		"",
 		"▶️ /review — start or resume a session",
+		"⏩ /ahead — a normal-sized session that doesn't wait: what's due in the next day, and a full batch of new cards",
 		"⚡ /cram — ignore due times and work through the queue now",
 		"👀 /reveal — show the reading, graded as wrong",
 		"⏭ /skip — skip without grading",
 		"🔍 /info 国境 — an entry and the compounds that use it",
 		"📊 /stats — progress",
 		"⏹ /stop — end the session",
+		"",
+		"In /ahead and /cram, new cards come without their reading. Read one right and it skips straight to known, back in a week.",
 	}, "\n")
 }
 
@@ -296,7 +308,7 @@ func Reminder(due, fresh int) string {
 
 // NoSession is the answer to an answer with nothing to answer.
 func NoSession() string {
-	return "💤 no session. /review to start, or /cram to ignore due times."
+	return "💤 no session. /review to start, or /ahead not to wait."
 }
 
 // kindBadge names what a prompt is. Without it a bare 本 is ambiguous in a way

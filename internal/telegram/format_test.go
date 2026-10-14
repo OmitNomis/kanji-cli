@@ -124,7 +124,7 @@ func TestDrillAsksForTheReading(t *testing.T) {
 
 func TestHelpListsTheCommands(t *testing.T) {
 	help := Help()
-	for _, cmd := range []string{"/review", "/cram", "/reveal", "/skip", "/info", "/stats", "/stop"} {
+	for _, cmd := range []string{"/review", "/ahead", "/cram", "/reveal", "/skip", "/info", "/stats", "/stop"} {
 		if !strings.Contains(help, cmd) {
 			t.Errorf("help does not mention %s", cmd)
 		}

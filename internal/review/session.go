@@ -31,15 +31,13 @@ type Config struct {
 	// MaxCards caps the session. Zero means work through everything due.
 	MaxCards int
 
-	// Cram skips the clock. Everything in the queue is asked whether or not it
-	// has come round, and the new-item budgets apply to the session rather than
-	// to the day, so a backlog of readings you already know can be put into the
-	// scheduler in an afternoon instead of over a fortnight.
-	//
-	// Nothing else changes: answers are graded, persisted and given real due
-	// times exactly as they are otherwise. It is the waiting that is skipped,
-	// not the ladder, which is what makes a crammed queue usable afterwards.
-	Cram bool
+	// Pace is how much of the clock a session ignores. See Pace.
+	Pace Pace
+
+	// AheadWindow and AheadReviews bound an Ahead session: cards coming due
+	// within the window, at most this many of them.
+	AheadWindow  time.Duration
+	AheadReviews int
 
 	// NewEvery places one new item every nth card, so a backlog of reviews does
 	// not have to be cleared before anything new appears.
@@ -55,6 +53,32 @@ type Config struct {
 	MaxRelearns int
 }
 
+// Pace is how much of the clock a session ignores.
+//
+// Outside Normal, the new-item budgets apply to the session rather than to the
+// day, and new cards are probed: asked without their reading, and placed high
+// on the ladder when answered right anyway. Both exist for the reviewer who
+// already reads much of what is being introduced, for whom a week of five
+// characters a day, each climbing every rung, is a week of nothing new.
+//
+// Nothing else changes: answers are graded, persisted and given real due times
+// exactly as they are otherwise. It is the waiting that is skipped, not the
+// ladder, which is what leaves the queue usable by a Normal session afterwards.
+type Pace int
+
+const (
+	// Normal asks what has come due, and the day's remaining new items.
+	Normal Pace = iota
+
+	// Ahead also asks what is coming due soon, so the bottom of the ladder --
+	// ten minutes, four hours, eight -- can be climbed without waiting for
+	// it, in sessions of the usual size rather than the whole queue at once.
+	Ahead
+
+	// Cram asks everything in the queue, whenever it is due.
+	Cram
+)
+
 // DefaultConfig is a session sized for a daily sitting: a few new characters,
 // a dozen new compounds, and every review that has come due.
 func DefaultConfig() Config {
@@ -66,6 +90,11 @@ func DefaultConfig() Config {
 		NewEvery:    4,
 		RelearnGap:  6,
 		MaxRelearns: 2,
+
+		// A day covers every rung below a day's interval, which is the part
+		// worth skipping; past it the gaps are what makes recall stick.
+		AheadWindow:  24 * time.Hour,
+		AheadReviews: 30,
 	}
 }
 
@@ -119,9 +148,8 @@ type Session struct {
 }
 
 // Begin assembles the queue: everything due, with the day's remaining new items
-// woven in. A cram session takes everything in the queue rather than what has
-// come round, and the whole of the new-item budget rather than what the day has
-// left.
+// woven in. A session at another Pace reaches past what has come round, and
+// takes the whole of the new-item budget rather than what the day has left.
 func Begin(ctx context.Context, st *store.Store, sched srs.Scheduler, cfg Config, now time.Time) (*Session, error) {
 	s := &Session{
 		store:     st,
@@ -148,11 +176,16 @@ func Begin(ctx context.Context, st *store.Store, sched srs.Scheduler, cfg Config
 	return s, nil
 }
 
-// waiting is the review half of the queue: what has come round, or everything
-// in the queue when the session is cramming.
+// waiting is the review half of the queue: what has come round, what is
+// coming round soon when reviewing ahead, or everything when cramming.
 func (s *Session) waiting(ctx context.Context, now time.Time) ([]store.Card, error) {
-	if s.cfg.Cram {
+	switch s.cfg.Pace {
+	case Cram:
 		return s.store.Scheduled(ctx, dueFetchLimit)
+	case Ahead:
+		// Soonest first, so what is already due is never crowded out by
+		// what merely could be asked.
+		return s.store.Due(ctx, now.Add(s.cfg.AheadWindow), s.cfg.AheadReviews)
 	}
 	return s.store.Due(ctx, now, dueFetchLimit)
 }
@@ -161,9 +194,10 @@ func (s *Session) waiting(ctx context.Context, now time.Time) ([]store.Card, err
 // items: kanji first, because every compound is gated behind them.
 func (s *Session) pickNew(ctx context.Context, now time.Time) ([]store.Card, error) {
 	var kanjiToday, wordsToday int
-	if !s.cfg.Cram {
-		// A cram session counts its intake against itself rather than against
-		// the day, so repeated passes are how you get through the list.
+	if s.cfg.Pace == Normal {
+		// Any other pace counts its intake against the session rather than
+		// against the day, so repeated passes are how you get through the
+		// characters you already read.
 		var err error
 		kanjiToday, wordsToday, err = s.store.IntroducedSince(ctx, startOfDay(now))
 		if err != nil {
@@ -180,22 +214,22 @@ func (s *Session) pickNew(ctx context.Context, now time.Time) ([]store.Card, err
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, asNewCards(items, s.sched, now)...)
+		out = append(out, asNewCards(items, s.sched, now, s.cfg.Pace != Normal)...)
 	}
 	if wordBudget > 0 {
 		items, err := s.store.NextWords(ctx, s.cfg.Selection, wordBudget)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, asNewCards(items, s.sched, now)...)
+		out = append(out, asNewCards(items, s.sched, now, s.cfg.Pace != Normal)...)
 	}
 	return out, nil
 }
 
-func asNewCards(items []store.Item, sched srs.Scheduler, now time.Time) []store.Card {
+func asNewCards(items []store.Item, sched srs.Scheduler, now time.Time, probe bool) []store.Card {
 	out := make([]store.Card, 0, len(items))
 	for _, it := range items {
-		out = append(out, store.Card{Item: it, State: sched.Introduce(now), New: true})
+		out = append(out, store.Card{Item: it, State: sched.Introduce(now), New: true, Probe: probe})
 	}
 	return out
 }
@@ -260,6 +294,10 @@ type Result struct {
 	Before   srs.State
 	After    srs.State
 	Requeued bool
+
+	// Placed is a probed card answered right on first sight, which skipped
+	// the bottom of the ladder.
+	Placed bool
 }
 
 // Answer grades the current card, persists it, and advances the session.
@@ -280,6 +318,11 @@ func (s *Session) Answer(ctx context.Context, given string, elapsed time.Duratio
 		Normalized: kana.Normalize(given),
 		Before:     card.State,
 		After:      s.sched.Grade(card.State, correct, now),
+	}
+	if card.Probe && correct {
+		// Read right without ever having been shown: already known.
+		res.After = s.sched.Place(card.State, srs.PlacementLevel, now)
+		res.Placed = true
 	}
 
 	if err := s.store.Save(ctx, card.Key, res.After); err != nil {
@@ -304,9 +347,11 @@ func (s *Session) Answer(ctx context.Context, given string, elapsed time.Duratio
 	}
 
 	// Carry the new state forward, and clear New so a requeued card is not
-	// counted as a second introduction.
+	// counted as a second introduction. A probe that missed has been shown
+	// its reading by now, so it comes back as an ordinary card.
 	card.State = res.After
 	card.New = false
+	card.Probe = false
 	s.queue[s.pos] = card
 
 	if !correct && s.relearns[card.Key] < s.cfg.MaxRelearns {

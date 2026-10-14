@@ -45,6 +45,8 @@ func TestParseCommandSlashPrefix(t *testing.T) {
 	}{
 		{"/review", CmdReview, ""},
 		{"/cram", CmdCram, ""},
+		{"/ahead", CmdAhead, ""},
+		{"/quick", CmdAhead, ""},
 		{"/stop", CmdQuit, ""},
 		{"/skip", CmdSkip, ""},
 		{"/reveal", CmdReveal, ""},

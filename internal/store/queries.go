@@ -36,7 +36,16 @@ type Card struct {
 	Item
 	State srs.State
 	New   bool // true if this is the first time the item has been seen
+
+	// Probe marks a new card asked without its reading, to find out whether
+	// it is already known. A right answer places it high on the ladder; a
+	// wrong one teaches it as usual, reading shown.
+	Probe bool
 }
+
+// HintShown reports whether the reading goes on screen with the prompt: while
+// the item is new, unless it is being probed.
+func (c Card) HintShown() bool { return !c.Probe && srs.ShowHint(c.State.Level) }
 
 // Selection controls which items are eligible to be introduced.
 type Selection struct {

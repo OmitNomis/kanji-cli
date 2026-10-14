@@ -38,7 +38,7 @@ func TestCramIgnoresDueTimesAndTheDailyBudget(t *testing.T) {
 		t.Fatalf("a second ordinary session had %d cards, want none", again.Total())
 	}
 
-	cfg.Cram = true
+	cfg.Pace = Cram
 	cram, err := Begin(ctx, s, exact, cfg, now)
 	if err != nil {
 		t.Fatalf("Begin cram: %v", err)
@@ -68,7 +68,7 @@ func TestCramStillGradesAndSchedules(t *testing.T) {
 		t.Fatalf("Answer: %v", err)
 	}
 
-	cfg.Cram = true
+	cfg.Pace = Cram
 	cfg.NewKanji = 0
 	cram, err := Begin(ctx, s, exact, cfg, now)
 	if err != nil {

@@ -179,16 +179,23 @@ new characters a day and four hours between sittings is the right pace for
 learning something; it is a waste of a fortnight if what you actually need is
 to tell the scheduler which hundred kanji you can already read.
 
-`-cram` skips the clock:
+There are two ways to skip the clock. `-ahead` is the one to reach for first:
+an ordinary-sized session that does not wait. It asks what has come due and
+what will come due in the next day, at most 30 of them, so the bottom of the
+ladder -- ten minutes, four hours, eight -- is climbed in one sitting rather
+than over two days. `-cram` goes further and asks everything in the queue,
+which grows with every pass.
 
 ```sh
+kanji -ahead                                # a session now, not in four hours
 kanji -cram -new-kanji 40 -new-words 60     # a catch-up sitting
-kanji -cram                                 # again, and again
 ```
 
-Two things change, and nothing else. Everything in the queue is asked whether
-or not it has come round, and the daily new-item budget becomes a per-session
-one, so running it four times introduces four times as much. Answers are still
+In both, the daily new-item budget becomes a per-session one, so running it
+four times introduces four times as much. And new cards are asked without
+their reading: read one right on first sight and it goes straight to *known*,
+a week out, instead of climbing every rung. Miss it, or reveal it with `?`, and
+it is taught the usual way. Answers are still
 graded, still persisted, and still given real due times — it is the *waiting*
 that is skipped, not the ladder. So a correct answer in a cram session climbs a
 rung exactly as it would otherwise, and a few passes leave a queue that
@@ -196,7 +203,8 @@ ordinary review can take over from. Things you miss drop back down and come
 round quickly, which is the point: cramming sorts the list into what you know
 and what you do not.
 
-When you are up to speed, stop passing `-cram` and the clock comes back.
+When you are up to speed, stop passing `-ahead` or `-cram` and the clock comes
+back.
 
 ## Typing the answer
 
@@ -254,6 +262,7 @@ Useful flags:
 | `-grades` | `1-8` | `1-6` for elementary only, `3` for one grade |
 | `-tier` | 1 | 2 common compounds only, 1 also second tier, 0 all 175k |
 | `-gate` | 1 | level a kanji must reach before its compounds appear |
+| `-ahead` | off | also ask what comes due within a day, and spend the whole new-item budget now |
 | `-cram` | off | ignore due times, and spend the whole new-item budget now |
 | `-width` | 72 | terminal columns |
 | `-dict`, `-progress` | | database locations |
@@ -338,6 +347,7 @@ copy of the rules to get out of step.
 | | |
 |---|---|
 | `/review` | start or resume a session |
+| `/ahead` | a normal-sized session that does not wait for due times |
 | `/cram` | ignore due times and work through the queue now |
 | `/reveal` | show the reading, graded as wrong |
 | `/skip` | skip without grading |

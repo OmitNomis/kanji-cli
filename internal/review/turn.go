@@ -22,10 +22,11 @@ const (
 	CmdHelp
 	CmdReveal
 
-	// CmdReview and CmdCram open a session, so they mean nothing to a turn that
-	// is already in one. A front-end that can start sessions on demand -- the
-	// bot -- acts on them before the turn ever sees them.
+	// CmdReview, CmdAhead and CmdCram open a session, so they mean nothing to
+	// a turn that is already in one. A front-end that can start sessions on
+	// demand -- the bot -- acts on them before the turn ever sees them.
 	CmdReview
+	CmdAhead
 	CmdCram
 )
 
@@ -88,6 +89,8 @@ func ParseCommand(line, prefix string) Command {
 		return Command{Kind: CmdReveal}
 	case "review", "go", "resume":
 		return Command{Kind: CmdReview}
+	case "ahead", "quick", "fast":
+		return Command{Kind: CmdAhead}
 	case "cram", "catchup":
 		return Command{Kind: CmdCram}
 	default:
@@ -204,7 +207,7 @@ func (t *Turn) Submit(ctx context.Context, cmd Command, now time.Time) (Outcome,
 	// These mean the same thing in either phase, and none of them touches the
 	// card.
 	switch cmd.Kind {
-	case CmdEmpty, CmdReview, CmdCram:
+	case CmdEmpty, CmdReview, CmdAhead, CmdCram:
 		out.What = OutNothing
 		t.asked = now
 		return out, nil

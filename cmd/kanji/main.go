@@ -56,6 +56,7 @@ type options struct {
 	tier     int
 	gate     int
 	cram     bool
+	ahead    bool
 
 	width int
 	color bool
@@ -72,6 +73,7 @@ func run(args []string) error {
 	fs.StringVar(&o.grades, "grades", "1-8", "school grades to teach: 1-6 elementary, 8 the rest of the joyo list")
 	fs.IntVar(&o.tier, "tier", 1, "lowest compound frequency tier to review: 2 common, 1 also second tier, 0 all")
 	fs.IntVar(&o.gate, "gate", 1, "level a kanji must reach before its compounds are introduced")
+	fs.BoolVar(&o.ahead, "ahead", false, "review what comes due in the next day as well, and take the whole new-item budget this session")
 	fs.BoolVar(&o.cram, "cram", false, "ignore due times: ask everything in the queue now, and take the whole new-item budget this session")
 	fs.IntVar(&o.width, "width", ui.DefaultWidth, "terminal width in columns")
 	fs.BoolVar(&o.color, "color", false, "force colour even when output is redirected")
@@ -341,6 +343,8 @@ func (a *app) nothingDue(ctx context.Context, now time.Time) error {
 	}
 	a.out.Blank()
 	switch {
+	case a.opts.ahead && !a.opts.cram:
+		a.out.Line("nothing coming due within a day, and nothing left to introduce.")
 	case a.opts.cram:
 		// Cramming already ignored every due time, so there is nothing to wait
 		// for: an empty queue here means there is nothing left to introduce.
@@ -386,7 +390,12 @@ func (a *app) config() (review.Config, error) {
 	cfg.MaxCards = a.opts.maxCards
 	cfg.Selection.WordTier = a.opts.tier
 	cfg.Selection.GateLevel = a.opts.gate
-	cfg.Cram = a.opts.cram
+	switch {
+	case a.opts.cram:
+		cfg.Pace = review.Cram
+	case a.opts.ahead:
+		cfg.Pace = review.Ahead
+	}
 
 	minGrade, maxGrade, err := review.ParseGrades(a.opts.grades)
 	if err != nil {

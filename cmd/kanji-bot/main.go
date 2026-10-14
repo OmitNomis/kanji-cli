@@ -201,7 +201,7 @@ func (o options) config() (review.Config, error) {
 // queue is not serialised anywhere.
 type chat struct {
 	turn *review.Turn
-	cram bool
+	pace review.Pace
 	seen time.Time
 }
 
@@ -313,9 +313,11 @@ func (b *bot) dispatch(ctx context.Context, id int64, text string) error {
 	// card in front of it.
 	switch cmd.Kind {
 	case review.CmdReview:
-		return b.begin(ctx, id, false, now)
+		return b.begin(ctx, id, review.Normal, now)
+	case review.CmdAhead:
+		return b.begin(ctx, id, review.Ahead, now)
 	case review.CmdCram:
-		return b.begin(ctx, id, true, now)
+		return b.begin(ctx, id, review.Cram, now)
 	}
 
 	c := b.chats[id]
@@ -347,8 +349,8 @@ func (b *bot) dispatch(ctx context.Context, id int64, text string) error {
 }
 
 // begin opens a session, or re-asks the current card when one is already open.
-func (b *bot) begin(ctx context.Context, id int64, cram bool, now time.Time) error {
-	if c := b.chats[id]; c != nil && c.cram == cram {
+func (b *bot) begin(ctx context.Context, id int64, pace review.Pace, now time.Time) error {
+	if c := b.chats[id]; c != nil && c.pace == pace {
 		if _, ok := c.turn.Card(); ok {
 			c.seen = now
 			return b.send(ctx, id, b.prompt(c))
@@ -361,7 +363,7 @@ func (b *bot) begin(ctx context.Context, id int64, cram bool, now time.Time) err
 	}
 
 	cfg := b.cfg
-	cfg.Cram = cram
+	cfg.Pace = pace
 	sess, err := review.Begin(ctx, b.store, b.sched, cfg, now)
 	if err != nil {
 		return err
@@ -369,8 +371,11 @@ func (b *bot) begin(ctx context.Context, id int64, cram bool, now time.Time) err
 
 	if sess.Total() == 0 {
 		delete(b.chats, id)
-		if cram {
+		switch pace {
+		case review.Cram:
 			return b.send(ctx, id, "nothing left to cram: every item in the queue has been asked.")
+		case review.Ahead:
+			return b.send(ctx, id, "😴 nothing coming due within a day, and nothing new left to introduce.")
 		}
 		nextDue, hasNext, err := b.store.NextDue(ctx, now)
 		if err != nil {
@@ -379,9 +384,9 @@ func (b *bot) begin(ctx context.Context, id int64, cram bool, now time.Time) err
 		return b.send(ctx, id, telegram.NothingDue(nextDue, hasNext, now))
 	}
 
-	c := &chat{turn: review.NewTurn(sess, now), cram: cram, seen: now}
+	c := &chat{turn: review.NewTurn(sess, now), pace: pace, seen: now}
 	b.chats[id] = c
-	return b.send(ctx, id, telegram.Join(telegram.Banner(counts, cram), b.prompt(c)))
+	return b.send(ctx, id, telegram.Join(telegram.Banner(counts, pace), b.prompt(c)))
 }
 
 // submit hands one line to the turn and sends what came of it.

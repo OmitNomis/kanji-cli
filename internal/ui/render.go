@@ -108,8 +108,12 @@ func (r *Renderer) Card(position, total, remaining int, c store.Card) {
 	r.printf("%s%s\n", promptIndent, r.style.BoldCyan(Spaced(c.Prompt)))
 
 	// The reading is given away while an item is new, because there is nothing
-	// to recall yet: the first encounters teach it, the later ones test it.
-	if srs.ShowHint(c.State.Level) && c.Hint != "" {
+	// to recall yet: the first encounters teach it, the later ones test it. A
+	// probed card is the exception, asked bare to see if it is known already.
+	if c.Probe {
+		r.printf("%s%s\n", promptIndent, r.style.Dim("first look: read it if you can, ? if not"))
+	}
+	if c.HintShown() && c.Hint != "" {
 		r.printf("%s%s  %s\n", promptIndent,
 			r.style.Dim("reading"),
 			r.style.Yellow(Truncate(c.Hint, r.width-Width(promptIndent)-10)))

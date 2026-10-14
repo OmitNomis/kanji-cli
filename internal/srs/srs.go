@@ -135,6 +135,23 @@ func (s Scheduler) Grade(st State, correct bool, now time.Time) State {
 	return next
 }
 
+// PlacementLevel is where an item lands when it is answered right on first
+// sight, before its reading has ever been shown: "known", a week out. Making
+// someone who already reads a character climb the bottom of the ladder only
+// delays the characters they cannot read.
+const PlacementLevel = 5
+
+// Place grades a correct first-sight answer, landing the item at level rather
+// than one rung up. Everything else is recorded as for any correct answer.
+func (s Scheduler) Place(st State, level int, now time.Time) State {
+	next := s.Grade(st, true, now)
+	if level > next.Level {
+		next.Level = min(level, MaxLevel)
+		next.DueAt = now.Add(s.interval(next.Level))
+	}
+	return next
+}
+
 // demote is the penalty for a wrong answer: one step near the bottom of the
 // ladder, two once the intervals are long enough that the loss is real.
 func demote(level int) int {
