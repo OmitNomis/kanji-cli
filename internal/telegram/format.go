@@ -276,6 +276,24 @@ func Help() string {
 	}, "\n")
 }
 
+// Reminder says a session is waiting. It is the one message the bot sends
+// unasked, so it says how big the session is and nothing else.
+func Reminder(due, fresh int) string {
+	var parts []string
+	if due > 0 {
+		parts = append(parts, ui.Count(due)+" due")
+	}
+	if fresh > 0 {
+		parts = append(parts, ui.Count(fresh)+" new")
+	}
+	noun := "cards"
+	if due+fresh == 1 {
+		noun = "card"
+	}
+	return fmt.Sprintf("🔔 <b>%s %s waiting</b> · %s\n\n/review to start",
+		ui.Count(due+fresh), noun, strings.Join(parts, " · "))
+}
+
 // NoSession is the answer to an answer with nothing to answer.
 func NoSession() string {
 	return "💤 no session. /review to start, or /cram to ignore due times."

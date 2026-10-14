@@ -322,15 +322,17 @@ grading and the command vocabulary are the hoisted ones, so there is no second
 copy of the rules to get out of step.
 
 ```
-14/60 · word · learning · 312 left
+📖 word  ·  🌿 learning
 
 写 真
 
+▰▰▱▱▱▱▱▱▱▱  14/60 · 312 left
+
 > shashin
 
-✓ しゃしん
-photograph; photo; picture
-learning → familiar · back in 8h
+✅ しゃしん
+┃ photograph; photo; picture
+🍀 learning → familiar · ⏰ back in 8h
 ```
 
 | | |
@@ -346,6 +348,23 @@ learning → familiar · back in 8h
 Anything not starting with `/` is an answer, and romaji works, so no IME is
 needed on a phone keyboard. There are no answer buttons, deliberately: tapping
 one is multiple choice, which is the thing this program exists not to be.
+
+### Reminders
+
+The bot pings you when a session is worth sitting down for: by default once
+ten or more cards are waiting, due reviews and the day's new items together.
+It pings once per pile, not once per card: after a ping it stays quiet until
+reviewing has brought the pile back under the threshold, so the ten-minute
+relearn step does not turn into a stream of notifications. Nothing is sent
+while you are mid-session, or overnight; a ping held back by quiet hours goes
+out when they end.
+
+| flag | default | |
+|---|---|---|
+| `-remind-at` | `10` | session size worth a ping; `0` turns reminders off |
+| `-quiet` | `23-8` | local hours with no pings; empty for none |
+
+Both go on the `ExecStart` line of the unit.
 
 ### Setting it up
 

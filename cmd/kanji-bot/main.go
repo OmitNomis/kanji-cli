@@ -86,6 +86,9 @@ type options struct {
 
 	idle time.Duration
 	poll time.Duration
+
+	remindAt int
+	quiet    string
 }
 
 func run(args []string) error {
@@ -101,6 +104,8 @@ func run(args []string) error {
 	fs.IntVar(&o.gate, "gate", 1, "level a kanji must reach before its compounds are introduced")
 	fs.DurationVar(&o.idle, "idle", time.Hour, "forget a chat's session after this long without a message")
 	fs.DurationVar(&o.poll, "poll", 45*time.Second, "how long each long poll waits for an update")
+	fs.IntVar(&o.remindAt, "remind-at", 10, "ping when a session of this many cards is waiting (0 for never)")
+	fs.StringVar(&o.quiet, "quiet", "23-8", "local hours with no pings, such as 23-8 (empty for none)")
 	fs.Usage = func() {
 		fmt.Fprint(fs.Output(), usage)
 		fs.PrintDefaults()
@@ -125,6 +130,10 @@ func run(args []string) error {
 		return err
 	}
 	cfg, err := o.config()
+	if err != nil {
+		return err
+	}
+	quiet, err := parseQuiet(o.quiet)
 	if err != nil {
 		return err
 	}
@@ -161,6 +170,8 @@ func run(args []string) error {
 		idle:    o.idle,
 		poll:    o.poll,
 		started: time.Now(),
+
+		reminder: reminder{at: o.remindAt, quiet: quiet},
 	}
 	return b.serve(ctx)
 }
@@ -206,6 +217,8 @@ type bot struct {
 	poll  time.Duration
 
 	started time.Time
+
+	reminder reminder
 }
 
 // serve is the long poll.
@@ -249,6 +262,7 @@ func (b *bot) serve(ctx context.Context) error {
 			b.handle(ctx, u)
 		}
 		b.expire(time.Now())
+		b.remind(ctx, time.Now())
 	}
 
 	log.Printf("stopped")
