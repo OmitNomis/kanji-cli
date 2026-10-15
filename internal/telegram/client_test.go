@@ -194,3 +194,23 @@ func TestSplitKeepsWholeLines(t *testing.T) {
 		t.Errorf("split of a short message = %q, want it untouched", got)
 	}
 }
+
+func TestSetMyCommands(t *testing.T) {
+	rec := &recorder{reply: `{"ok":true,"result":true}`}
+	c := serve(t, rec)
+
+	cmds := []BotCommand{{"review", "start or resume a session"}}
+	if err := c.SetMyCommands(context.Background(), cmds); err != nil {
+		t.Fatalf("SetMyCommands: %v", err)
+	}
+	if want := "/bot" + testToken + "/setMyCommands"; rec.paths[0] != want {
+		t.Errorf("called %s, want %s", rec.paths[0], want)
+	}
+	got, _ := rec.bodies[0]["commands"].([]any)
+	if len(got) != 1 {
+		t.Fatalf("sent commands %v, want one", rec.bodies[0]["commands"])
+	}
+	if entry, _ := got[0].(map[string]any); entry["command"] != "review" {
+		t.Errorf("sent %v, want the review command", entry)
+	}
+}

@@ -155,6 +155,12 @@ func run(args []string) error {
 		return fmt.Errorf("the bot token was not accepted: %w", err)
 	}
 	log.Printf("authenticated as @%s (%d allowed chats, %s idle timeout)", me.Username, len(allowed), o.idle)
+
+	// A menu that is out of date is a nuisance, not a reason to stay down:
+	// every command still works typed out in full.
+	if err := client.SetMyCommands(ctx, telegram.Commands()); err != nil {
+		log.Printf("could not set the command menu: %v", err)
+	}
 	if len(allowed) == 0 {
 		log.Printf("%s is empty, so every chat will be refused. Message the bot "+
 			"and put the rejected ID in /etc/cli-kanji/bot.env, then restart", envAllowed)

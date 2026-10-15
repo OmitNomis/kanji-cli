@@ -306,6 +306,23 @@ func Reminder(due, fresh int) string {
 		ui.Count(due+fresh), noun, strings.Join(parts, " · "))
 }
 
+// Commands is the menu Telegram shows when "/" is typed. The bot registers it
+// on every start, so the menu is whatever this build understands rather than
+// whatever was last pasted into BotFather.
+func Commands() []BotCommand {
+	return []BotCommand{
+		{"review", "start or resume a session"},
+		{"ahead", "a session now, without waiting for due times"},
+		{"cram", "ignore due times and work through the queue"},
+		{"reveal", "show the reading, graded as wrong"},
+		{"skip", "skip without grading"},
+		{"info", "look up a kanji or word: /info 国境"},
+		{"stats", "progress"},
+		{"stop", "end the session"},
+		{"help", "what the bot understands"},
+	}
+}
+
 // NoSession is the answer to an answer with nothing to answer.
 func NoSession() string {
 	return "💤 no session. /review to start, or /ahead not to wait."

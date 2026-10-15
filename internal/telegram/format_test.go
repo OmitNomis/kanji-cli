@@ -165,3 +165,17 @@ func TestFeedbackTagsBalance(t *testing.T) {
 		}
 	}
 }
+
+// The menu must not offer anything the bot does not understand: an unknown
+// command falls through to help, which would make a menu entry a dead end.
+func TestCommandsAreUnderstood(t *testing.T) {
+	for _, c := range Commands() {
+		got := review.ParseCommand("/"+c.Command, review.SlashPrefix)
+		if got.Kind == review.CmdHelp && c.Command != "help" {
+			t.Errorf("/%s is in the menu but parses as an unknown command", c.Command)
+		}
+		if c.Description == "" || len(c.Description) > 256 {
+			t.Errorf("/%s description %q: Telegram wants 1-256 characters", c.Command, c.Description)
+		}
+	}
+}

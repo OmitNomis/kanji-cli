@@ -164,6 +164,23 @@ func (c *Client) GetUpdates(ctx context.Context, offset int64, timeout time.Dura
 	return updates, nil
 }
 
+// BotCommand is one entry in the menu a client shows when "/" is typed.
+type BotCommand struct {
+	Command     string `json:"command"`
+	Description string `json:"description"`
+}
+
+// SetMyCommands replaces the bot's command menu.
+func (c *Client) SetMyCommands(ctx context.Context, commands []BotCommand) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	req := struct {
+		Commands []BotCommand `json:"commands"`
+	}{commands}
+	return c.call(ctx, "setMyCommands", req, nil)
+}
+
 // SendMessage sends HTML, splitting anything too long for one message.
 //
 // HTML rather than MarkdownV2 on purpose: MarkdownV2 requires escaping a long
