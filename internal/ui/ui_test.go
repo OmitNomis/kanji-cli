@@ -298,6 +298,66 @@ func TestWrongNamesWhatWasTypedAndWhatWasRight(t *testing.T) {
 	}
 }
 
+func TestWrapKeepsWordsAndReadingsWhole(t *testing.T) {
+	got := Wrap("photograph; photo; picture; snapshot", 20)
+	want := []string{"photograph; photo;", "picture; snapshot"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("Wrap = %q, want %q", got, want)
+	}
+
+	// A kanji's readings have no spaces between them, only ・, and must still
+	// break between readings rather than through one.
+	for _, l := range Wrap("い.きる・い.かす・い.ける・う.まれる", 16) {
+		if Width(l) > 16 {
+			t.Errorf("line %q is %d columns, want at most 16", l, Width(l))
+		}
+		if strings.HasPrefix(l, ".") || strings.HasSuffix(l, ".") {
+			t.Errorf("line %q splits a reading", l)
+		}
+	}
+
+	// A run with nowhere to break is cut, but nothing is lost.
+	long := Wrap("supercalifragilistic", 8)
+	if strings.Join(long, "") != "supercalifragilistic" {
+		t.Errorf("Wrap lost text: %q", long)
+	}
+	if Wrap("", 10) != nil {
+		t.Errorf("Wrap of nothing should be no lines")
+	}
+}
+
+func TestLongGlossIsWrappedNotCut(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, 40, false)
+
+	gloss := "to be; to exist; to live; to be located; to be equipped with; to happen"
+	card := store.Card{
+		Item:  store.Item{Kind: "word", Prompt: "有る", Answers: []string{"ある"}, Gloss: gloss},
+		State: srs.State{Level: 3},
+	}
+	res := review.Result{
+		Matched: "ある",
+		Before:  srs.State{Level: 3},
+		After:   srs.State{Level: 4, DueAt: time.Now().Add(72 * time.Hour)},
+	}
+	r.Correct(res, card)
+	r.Wrong(res, card)
+	r.Revealed(res, card)
+
+	out := buf.String()
+	if strings.Contains(out, "…") {
+		t.Errorf("a gloss was truncated:\n%s", out)
+	}
+	if n := strings.Count(out, "happen"); n != 3 {
+		t.Errorf("the end of the gloss appears %d times, want 3:\n%s", n, out)
+	}
+	for _, l := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		if Width(l) > 40 {
+			t.Errorf("line is %d columns, want at most 40: %q", Width(l), l)
+		}
+	}
+}
+
 func TestStyleRespectsNoColor(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	if s := NewStyle(false); s.Enabled() {

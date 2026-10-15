@@ -118,3 +118,46 @@ func Spaced(s string) string {
 	}
 	return b.String()
 }
+
+// Wrap breaks s into lines of at most n columns. Lines break after a space or
+// a ・, which is what separates a kanji's readings in its hint, so neither a word
+// nor a reading is ever split while it fits on a line of its own. Only a run
+// with no break in it wider than n is cut, wherever it has to be.
+func Wrap(s string, n int) []string {
+	if n < 1 {
+		n = 1
+	}
+	var (
+		lines []string
+		line  []rune
+		w     int
+		brk   int // len(line) just after the last break opportunity, 0 for none
+	)
+	flush := func(cut int) {
+		lines = append(lines, strings.TrimRight(string(line[:cut]), " "))
+		rest := append([]rune(nil), line[cut:]...)
+		line, w, brk = rest, Width(string(rest)), 0
+	}
+	for _, r := range s {
+		rw := RuneWidth(r)
+		for w+rw > n && len(line) > 0 {
+			if r == ' ' || brk == 0 {
+				flush(len(line))
+			} else {
+				flush(brk)
+			}
+		}
+		if r == ' ' && len(line) == 0 {
+			continue
+		}
+		line = append(line, r)
+		w += rw
+		if r == ' ' || r == '・' {
+			brk = len(line)
+		}
+	}
+	if len(line) > 0 {
+		lines = append(lines, strings.TrimRight(string(line), " "))
+	}
+	return lines
+}

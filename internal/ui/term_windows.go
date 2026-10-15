@@ -34,3 +34,15 @@ func enableUTF8() {
 		windows.SetConsoleMode(handle, mode|windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING)
 	}
 }
+
+// terminalColumns reports how wide the console window behind f is, or false
+// when f is not a console. It is the visible window, not the scroll buffer,
+// which on older consoles is far wider than anything on screen.
+func terminalColumns(f *os.File) (int, bool) {
+	var info windows.ConsoleScreenBufferInfo
+	if windows.GetConsoleScreenBufferInfo(windows.Handle(f.Fd()), &info) != nil {
+		return 0, false
+	}
+	cols := int(info.Window.Right-info.Window.Left) + 1
+	return cols, cols > 0
+}

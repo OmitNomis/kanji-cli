@@ -264,7 +264,7 @@ Useful flags:
 | `-gate` | 1 | level a kanji must reach before its compounds appear |
 | `-ahead` | off | also ask what comes due within a day, and spend the whole new-item budget now |
 | `-cram` | off | ignore due times, and spend the whole new-item budget now |
-| `-width` | 72 | terminal columns |
+| `-width` | auto | columns to lay out for; measured from the terminal, capped at 100 |
 | `-dict`, `-progress` | | database locations |
 
 `CLI_KANJI_DICT` and `CLI_KANJI_PROGRESS` override the paths.

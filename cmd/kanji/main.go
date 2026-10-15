@@ -75,7 +75,7 @@ func run(args []string) error {
 	fs.IntVar(&o.gate, "gate", 1, "level a kanji must reach before its compounds are introduced")
 	fs.BoolVar(&o.ahead, "ahead", false, "review what comes due in the next day as well, and take the whole new-item budget this session")
 	fs.BoolVar(&o.cram, "cram", false, "ignore due times: ask everything in the queue now, and take the whole new-item budget this session")
-	fs.IntVar(&o.width, "width", ui.DefaultWidth, "terminal width in columns")
+	fs.IntVar(&o.width, "width", 0, "columns to lay out for (0 measures the terminal)")
 	fs.BoolVar(&o.color, "color", false, "force colour even when output is redirected")
 	fs.Usage = func() {
 		fmt.Fprint(fs.Output(), usage)

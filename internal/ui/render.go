@@ -7,6 +7,7 @@ package ui
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -23,11 +24,18 @@ const (
 	markIndent   = "    "
 	noteIndent   = "       "
 
-	// DefaultWidth is a conservative 80-column terminal with a margin. COLUMNS
-	// is not exported to child processes by most shells, so guessing wide and
-	// wrapping is worse than guessing narrow.
+	// DefaultWidth is a conservative 80-column terminal with a margin, used
+	// when output is not a terminal that can be asked how wide it is. Guessing
+	// wide and having the terminal wrap is worse than guessing narrow.
 	DefaultWidth = 72
 	minWidth     = 40
+
+	// maxWidth caps a measured terminal. Rules and glosses stretched across a
+	// 200-column window are harder to read, not easier.
+	maxWidth = 100
+
+	// glossGap separates an answer from the gloss that trails it.
+	glossGap = "   "
 
 	// maxOtherReadings bounds the "also" line. A kanji can have a dozen
 	// readings and listing all of them teaches nothing.
@@ -38,17 +46,78 @@ const (
 type Renderer struct {
 	out   io.Writer
 	style Style
-	width int
+	fixed int // columns to lay out for; 0 measures the terminal instead
 }
 
 // New creates a renderer. Call it before any output: on Windows it is what
 // switches the console to UTF-8, without which every kanji is mojibake.
+//
+// A width of 0 means the terminal's own, asked afresh for every line that
+// depends on it, so resizing the window mid-session takes effect on the next
+// card.
 func New(out io.Writer, width int, forceColor bool) *Renderer {
 	enableUTF8()
-	if width < minWidth {
-		width = DefaultWidth
+	if width != 0 && width < minWidth {
+		width = minWidth
 	}
-	return &Renderer{out: out, style: NewStyle(forceColor), width: width}
+	return &Renderer{out: out, style: NewStyle(forceColor), fixed: width}
+}
+
+// width is how many columns to lay out for. A measured terminal loses one
+// column, because writing into the last one makes some consoles wrap early
+// and leave a blank line behind.
+func (r *Renderer) width() int {
+	if r.fixed > 0 {
+		return r.fixed
+	}
+	f, ok := r.out.(*os.File)
+	if !ok {
+		return DefaultWidth
+	}
+	cols, ok := terminalColumns(f)
+	if !ok {
+		return DefaultWidth
+	}
+	return min(max(cols-1, minWidth), maxWidth)
+}
+
+// wrapped writes text in lines no wider than the terminal, each one starting
+// at lead and tinted by paint.
+func (r *Renderer) wrapped(lead, text string, paint func(string) string) {
+	for _, l := range Wrap(text, r.width()-Width(lead)) {
+		r.printf("%s%s\n", lead, paint(l))
+	}
+}
+
+// labelled writes text after a label, wrapped so that later lines hang under
+// the first rather than under the label: a kanji with a dozen readings keeps
+// them in one column.
+func (r *Renderer) labelled(lead, label, text string, paintLabel, paint func(string) string) {
+	under := lead + strings.Repeat(" ", Width(label))
+	for i, l := range Wrap(text, r.width()-Width(under)) {
+		if i == 0 {
+			r.printf("%s%s%s\n", lead, paintLabel(label), paint(l))
+		} else {
+			r.printf("%s%s\n", under, paint(l))
+		}
+	}
+}
+
+// trailed writes head, whose visible width is headWidth, followed by a dimmed
+// gloss. The gloss stays on head's line when all of it fits there, and
+// otherwise moves to lines of its own starting at under. It is never cut: a
+// meaning missing its last sense is a different meaning.
+func (r *Renderer) trailed(head string, headWidth int, gloss, under string) {
+	if gloss == "" {
+		r.printf("%s\n", head)
+		return
+	}
+	if headWidth+Width(glossGap)+Width(gloss) <= r.width() {
+		r.printf("%s%s%s\n", head, glossGap, r.style.Dim(gloss))
+		return
+	}
+	r.printf("%s\n", head)
+	r.wrapped(under, gloss, r.style.Dim)
 }
 
 // Style exposes the colour helpers for callers that need to tint their own text.
@@ -70,7 +139,7 @@ func (r *Renderer) Blank() { r.printf("\n") }
 // note on the right.
 func (r *Renderer) Rule(label, note string) {
 	left := "── " + label + " "
-	available := r.width - len(indent) - Width(left)
+	available := r.width() - len(indent) - Width(left)
 	if note != "" {
 		available -= Width(note) + 1
 	}
@@ -114,19 +183,15 @@ func (r *Renderer) Card(position, total, remaining int, c store.Card) {
 		r.printf("%s%s\n", promptIndent, r.style.Dim("first look: read it if you can, ? if not"))
 	}
 	if c.HintShown() && c.Hint != "" {
-		r.printf("%s%s  %s\n", promptIndent,
-			r.style.Dim("reading"),
-			r.style.Yellow(Truncate(c.Hint, r.width-Width(promptIndent)-10)))
+		r.labelled(promptIndent, "reading  ", c.Hint, r.style.Dim, r.style.Yellow)
 	}
 	r.Blank()
 }
 
 // Correct reports a right answer.
 func (r *Renderer) Correct(res review.Result, c store.Card) {
-	r.printf("%s%s  %s   %s\n", markIndent,
-		r.style.Green("✓"),
-		r.style.Bold(res.Matched),
-		r.style.Dim(Truncate(c.Gloss, r.width-Width(markIndent)-Width(res.Matched)-8)))
+	head := markIndent + r.style.Green("✓") + "  " + r.style.Bold(res.Matched)
+	r.trailed(head, Width(markIndent+"✓  "+res.Matched), c.Gloss, noteIndent)
 
 	if others := otherReadings(c.Answers, res.Matched); others != "" {
 		r.printf("%s%s\n", noteIndent, r.style.Dim("also "+others))
@@ -142,20 +207,18 @@ func (r *Renderer) Wrong(res review.Result, c store.Card) {
 	}
 
 	r.printf("%s%s  %s\n", markIndent, r.style.Red("✗"), r.style.Dim("you typed "+typed))
-	r.printf("%s%s is %s   %s\n", noteIndent,
-		c.Prompt,
-		r.style.Bold(strings.Join(limit(c.Answers, maxOtherReadings), ", ")),
-		r.style.Dim(Truncate(c.Gloss, r.width-Width(noteIndent)-30)))
+	answers := strings.Join(limit(c.Answers, maxOtherReadings), ", ")
+	head := noteIndent + c.Prompt + " is " + r.style.Bold(answers)
+	r.trailed(head, Width(noteIndent+c.Prompt+" is "+answers), c.Gloss, noteIndent)
 	r.printf("%s%s\n", noteIndent, r.style.Dim(progression(res)))
 }
 
 // Revealed reports an answer the reviewer asked to be shown. It is graded as
 // wrong, because being told is not knowing.
 func (r *Renderer) Revealed(res review.Result, c store.Card) {
-	r.printf("%s%s  %s is %s   %s\n", markIndent,
-		r.style.Yellow("·"), c.Prompt,
-		r.style.Bold(strings.Join(limit(c.Answers, maxOtherReadings), ", ")),
-		r.style.Dim(Truncate(c.Gloss, r.width-Width(markIndent)-30)))
+	answers := strings.Join(limit(c.Answers, maxOtherReadings), ", ")
+	head := markIndent + r.style.Yellow("·") + "  " + c.Prompt + " is " + r.style.Bold(answers)
+	r.trailed(head, Width(markIndent+"·  "+c.Prompt+" is "+answers), c.Gloss, noteIndent)
 	r.printf("%s%s\n", noteIndent, r.style.Dim(progression(res)))
 }
 
@@ -219,24 +282,36 @@ func (r *Renderer) Info(it store.Item, compounds []store.Item) {
 	r.Blank()
 	r.Rule(it.Prompt+" · "+kind, "")
 	r.Blank()
-	r.Line("readings  %s", r.style.Bold(strings.Join(it.Answers, ", ")))
+	r.labelled(indent, "readings  ", strings.Join(it.Answers, ", "), plain, r.style.Bold)
 
 	// Only a kanji's hint adds anything here: it keeps the on/kun split and the
 	// okurigana markers that the flattened answer list throws away. A word's
 	// hint is just its primary reading, already on the line above.
+	under := indent + strings.Repeat(" ", len("readings  "))
 	if it.IsKanji() && it.Hint != "" {
-		r.Line("          %s", r.style.Dim(it.Hint))
+		r.wrapped(under, it.Hint, r.style.Dim)
 	}
-	r.Line("meaning   %s", it.Gloss)
+	r.labelled(indent, "meaning   ", it.Gloss, plain, plain)
 
 	if len(compounds) > 0 {
 		r.Blank()
 		r.Line("%s", r.style.Dim("compounds"))
+		// Each gloss hangs in its own column, so a long one wraps under
+		// itself rather than under the spelling.
+		lead := indent + strings.Repeat(" ", 2+10+2+14+2)
 		for _, w := range compounds {
+			lines := Wrap(w.Gloss, r.width()-Width(lead))
+			first := ""
+			if len(lines) > 0 {
+				first = lines[0]
+			}
 			r.Line("  %s  %s  %s",
 				Pad(w.Prompt, 10),
 				Pad(Truncate(w.Answers[0], 14), 14),
-				r.style.Dim(Truncate(w.Gloss, r.width-34)))
+				r.style.Dim(first))
+			for _, l := range lines[min(1, len(lines)):] {
+				r.printf("%s%s\n", lead, r.style.Dim(l))
+			}
 		}
 	}
 	r.Blank()
@@ -430,3 +505,6 @@ func Count(n int) string {
 	}
 	return b.String()
 }
+
+// plain paints nothing, for text that keeps the terminal's own colour.
+func plain(s string) string { return s }
