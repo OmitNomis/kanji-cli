@@ -453,6 +453,13 @@ func (b *bot) submit(ctx context.Context, id int64, c *chat, cmd review.Command,
 	case review.OutSkipped, review.OutAbandoned:
 		blocks = append(blocks, telegram.Skipped())
 		reprompt = true
+
+	case review.OutUndone:
+		blocks = append(blocks, telegram.Undone())
+		reprompt = true
+
+	case review.OutNoUndo:
+		blocks = append(blocks, telegram.NoUndo())
 	}
 
 	if c.turn.Phase() == review.Finished {

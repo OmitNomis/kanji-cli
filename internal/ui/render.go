@@ -244,6 +244,16 @@ func (r *Renderer) Garbled() {
 	r.printf("%s%s\n", noteIndent, r.style.Yellow("that came through garbled, not graded: type it again"))
 }
 
+// Undone says a wrong answer was taken back. The card is redrawn after it.
+func (r *Renderer) Undone() {
+	r.printf("%s%s\n", noteIndent, r.style.Yellow("↶ taken back"))
+}
+
+// NoUndo explains an undo that had nothing to take back.
+func (r *Renderer) NoUndo() {
+	r.printf("%s%s\n", noteIndent, r.style.Dim("nothing to undo: :u takes back a wrong answer, until the next card is answered"))
+}
+
 // Accepted acknowledges a successful drill retype without re-reporting the
 // whole answer.
 func (r *Renderer) Accepted() {
@@ -269,7 +279,7 @@ func (r *Renderer) Banner(c store.Counts, builtAt string) {
 // Help lists the commands available at a prompt.
 func (r *Renderer) Help() {
 	r.Line("%s", r.style.Dim("type the reading, kana or romaji"))
-	r.Line("%s", r.style.Dim("? reveal · :s skip · :i info · :stats · :q quit"))
+	r.Line("%s", r.style.Dim("? reveal · :s skip · :u undo · :i info · :stats · :q quit"))
 }
 
 // Info prints a full dictionary entry and the compounds that use it.

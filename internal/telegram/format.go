@@ -137,6 +137,15 @@ func Retyped() string { return "👍 got it" }
 // Skipped acknowledges a card passed over, so a skip is never silent.
 func Skipped() string { return "⏭ skipped" }
 
+// Undone says a wrong answer was taken back. The card follows, asked again.
+func Undone() string { return "↩️ taken back, as if it never happened" }
+
+// NoUndo explains an undo with nothing to undo, which is most of them: only a
+// wrong answer counts, and only until the next card is answered.
+func NoUndo() string {
+	return "nothing to undo: /undo takes back a wrong answer, until the next card is answered."
+}
+
 // Info is a dictionary entry and the compounds that use it.
 func Info(it store.Item, compounds []store.Item) string {
 	var b strings.Builder
@@ -280,6 +289,7 @@ func Help() string {
 		"⚡ /cram — ignore due times and work through the queue now",
 		"👀 /reveal — show the reading, graded as wrong",
 		"⏭ /skip — skip without grading",
+		"↩️ /undo — take back a wrong answer you knew, before answering the next card",
 		"🔍 /info 国境 — an entry and the compounds that use it",
 		"📊 /stats — progress",
 		"⏹ /stop — end the session",
@@ -316,6 +326,7 @@ func Commands() []BotCommand {
 		{"cram", "ignore due times and work through the queue"},
 		{"reveal", "show the reading, graded as wrong"},
 		{"skip", "skip without grading"},
+		{"undo", "take back a wrong answer"},
 		{"info", "look up a kanji or word: /info 国境"},
 		{"stats", "progress"},
 		{"stop", "end the session"},

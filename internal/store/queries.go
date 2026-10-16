@@ -204,7 +204,16 @@ func (s *Store) refreshLearnedKanji(ctx context.Context, gateLevel int) error {
 
 // Save writes an item's review state, inserting it if this was its first answer.
 func (s *Store) Save(ctx context.Context, key string, st srs.State) error {
-	_, err := s.db.ExecContext(ctx, `
+	return save(ctx, s.db, key, st)
+}
+
+// execer is what both a connection and a transaction can do.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func save(ctx context.Context, db execer, key string, st srs.State) error {
+	_, err := db.ExecContext(ctx, `
 		INSERT INTO review
 			(item_key, level, due_at, reps, lapses, streak, best_streak,
 			 correct, incorrect, added_at, last_at)
@@ -227,18 +236,44 @@ func (s *Store) Save(ctx context.Context, key string, st srs.State) error {
 	return nil
 }
 
-// LogAnswer appends to the answer history. Every answer is kept: it costs a row
-// and it is the only way to say anything honest about progress later.
-func (s *Store) LogAnswer(ctx context.Context, key, given string, correct bool, levelBefore, levelAfter int, at time.Time, elapsed time.Duration) error {
-	_, err := s.db.ExecContext(ctx, `
+// LogAnswer appends to the answer history and returns the row's id. Every
+// answer is kept: it costs a row and it is the only way to say anything honest
+// about progress later.
+func (s *Store) LogAnswer(ctx context.Context, key, given string, correct bool, levelBefore, levelAfter int, at time.Time, elapsed time.Duration) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO answer_log
 			(item_key, at, given, correct, level_before, level_after, elapsed_ms)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		key, at.Unix(), given, boolInt(correct), levelBefore, levelAfter, elapsed.Milliseconds())
 	if err != nil {
-		return fmt.Errorf("log answer for %s: %w", key, err)
+		return 0, fmt.Errorf("log answer for %s: %w", key, err)
 	}
-	return nil
+	return res.LastInsertId()
+}
+
+// Unanswer takes back one answer: the log row goes, and the item's review state
+// returns to what it was before. An item that had no state before -- a new
+// card's first answer -- loses its row entirely, so it counts as new again,
+// including against the day's introductions.
+func (s *Store) Unanswer(ctx context.Context, key string, logID int64, before srs.State, existed bool) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM answer_log WHERE id = ? AND item_key = ?`, logID, key); err != nil {
+		return fmt.Errorf("unlog answer for %s: %w", key, err)
+	}
+	if existed {
+		err = save(ctx, tx, key, before)
+	} else {
+		_, err = tx.ExecContext(ctx, `DELETE FROM review WHERE item_key = ?`, key)
+	}
+	if err != nil {
+		return fmt.Errorf("restore review %s: %w", key, err)
+	}
+	return tx.Commit()
 }
 
 // Counts is the summary shown before and after a session.
@@ -518,4 +553,56 @@ func boolInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// Record is what you have done with one item: its review state, and the last
+// thing you typed for it that was not the reading.
+type Record struct {
+	Seen  bool // false for an item never answered, when the rest is zero
+	State srs.State
+
+	LastWrong   string // as typed; empty when it has never been missed
+	LastWrongAt time.Time
+}
+
+// Record looks up an item's history by key.
+func (s *Store) Record(ctx context.Context, key string) (Record, error) {
+	var (
+		rec            Record
+		dueAt, addedAt int64
+		lastAt         sql.NullInt64
+	)
+	err := s.db.QueryRowContext(ctx, `
+		SELECT `+reviewColumns+` FROM review r WHERE r.item_key = ?`, key).Scan(
+		&rec.State.Level, &dueAt, &rec.State.Reps, &rec.State.Lapses, &rec.State.Streak,
+		&rec.State.BestStreak, &rec.State.Correct, &rec.State.Incorrect, &addedAt, &lastAt)
+	switch {
+	case err == sql.ErrNoRows:
+		return Record{}, nil
+	case err != nil:
+		return Record{}, fmt.Errorf("record for %s: %w", key, err)
+	}
+	rec.Seen = true
+	rec.State.DueAt = time.Unix(dueAt, 0)
+	rec.State.AddedAt = time.Unix(addedAt, 0)
+	if lastAt.Valid {
+		rec.State.LastAt = time.Unix(lastAt.Int64, 0)
+	}
+
+	// A reveal is logged as an empty answer; it is a miss, but there is
+	// nothing to show for it.
+	var at int64
+	err = s.db.QueryRowContext(ctx, `
+		SELECT given, at FROM answer_log
+		WHERE item_key = ? AND correct = 0 AND given != ''
+		ORDER BY at DESC, id DESC
+		LIMIT 1`, key).Scan(&rec.LastWrong, &at)
+	switch {
+	case err == sql.ErrNoRows:
+	case err != nil:
+		return Record{}, fmt.Errorf("last miss for %s: %w", key, err)
+	default:
+		rec.LastWrongAt = time.Unix(at, 0)
+	}
+	return rec, nil
 }

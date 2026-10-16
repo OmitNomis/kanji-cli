@@ -137,6 +137,10 @@ type Session struct {
 	pos      int
 	relearns map[string]int
 
+	// undo is the last wrong answer, kept until anything else moves the
+	// session on. Nil when there is nothing to take back.
+	undo *undoable
+
 	Introduced struct {
 		Kanji int
 		Words int
@@ -328,8 +332,14 @@ func (s *Session) Answer(ctx context.Context, given string, elapsed time.Duratio
 	if err := s.store.Save(ctx, card.Key, res.After); err != nil {
 		return res, err
 	}
-	if err := s.store.LogAnswer(ctx, card.Key, given, correct, res.Before.Level, res.After.Level, now, elapsed); err != nil {
+	logID, err := s.store.LogAnswer(ctx, card.Key, given, correct, res.Before.Level, res.After.Level, now, elapsed)
+	if err != nil {
 		return res, err
+	}
+
+	s.undo = nil
+	if !correct && given != "" {
+		s.undo = &undoable{card: card, pos: s.pos, logID: logID, requeuedAt: -1}
 	}
 
 	s.Answered++
@@ -356,8 +366,11 @@ func (s *Session) Answer(ctx context.Context, given string, elapsed time.Duratio
 
 	if !correct && s.relearns[card.Key] < s.cfg.MaxRelearns {
 		s.relearns[card.Key]++
-		s.requeue(card)
+		at := s.requeue(card)
 		res.Requeued = true
+		if s.undo != nil {
+			s.undo.requeuedAt = at
+		}
 	}
 
 	s.pos++
@@ -369,19 +382,69 @@ func (s *Session) Skip() {
 	if s.pos < len(s.queue) {
 		s.pos++
 	}
+	s.undo = nil
+}
+
+// undoable is everything a wrong answer changed, so it can be put back.
+type undoable struct {
+	card       store.Card // as it was before the answer
+	pos        int        // where it sat in the queue
+	logID      int64
+	requeuedAt int // index of its relearn copy, -1 for none
+}
+
+// CanUndo reports whether there is a wrong answer to take back: the last thing
+// graded was wrong, and no card has been answered or skipped since.
+func (s *Session) CanUndo() bool { return s.undo != nil }
+
+// Undo takes back the last wrong answer, as though it had never been given.
+// The card's state and the answer log return to what they were, its relearn
+// copy leaves the queue, and it becomes the current card again.
+//
+// It exists for the answer you knew and fumbled -- Enter hit on a typo -- so it
+// covers wrong answers only. A reveal is not one: asking to be told is not a
+// slip of the finger.
+func (s *Session) Undo(ctx context.Context) (store.Card, error) {
+	u := s.undo
+	if u == nil {
+		return store.Card{}, fmt.Errorf("nothing to undo")
+	}
+	if err := s.store.Unanswer(ctx, u.card.Key, u.logID, u.card.State, !u.card.New); err != nil {
+		return store.Card{}, err
+	}
+	s.undo = nil
+
+	if u.requeuedAt >= 0 {
+		s.queue = append(s.queue[:u.requeuedAt], s.queue[u.requeuedAt+1:]...)
+		s.relearns[u.card.Key]--
+	}
+	s.queue[u.pos] = u.card
+	s.pos = u.pos
+
+	s.Answered--
+	s.Incorrect--
+	if u.card.New {
+		if u.card.IsKanji() {
+			s.Introduced.Kanji--
+		} else {
+			s.Introduced.Words--
+		}
+	}
+	return u.card, nil
 }
 
 // requeue puts a card back RelearnGap slots ahead, or at the end if the queue
-// is shorter than that.
-func (s *Session) requeue(card store.Card) {
+// is shorter than that, and returns where it went.
+func (s *Session) requeue(card store.Card) int {
 	at := s.pos + 1 + s.cfg.RelearnGap
 	if at >= len(s.queue) {
 		s.queue = append(s.queue, card)
-		return
+		return len(s.queue) - 1
 	}
 	s.queue = append(s.queue, store.Card{})
 	copy(s.queue[at+1:], s.queue[at:])
 	s.queue[at] = card
+	return at
 }
 
 // Accuracy is the share of this session's answers that were correct.

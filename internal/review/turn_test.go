@@ -21,6 +21,7 @@ func TestParseCommandColonPrefix(t *testing.T) {
 		{":i", CmdInfo, ""},
 		{":i 国境", CmdInfo, "国境"},
 		{":stats", CmdStats, ""},
+		{":u", CmdUndo, ""},
 		{":nonsense", CmdHelp, ""},
 
 		// The reason commands need a prefix at all: い is a reading of 五, so a
@@ -51,6 +52,7 @@ func TestParseCommandSlashPrefix(t *testing.T) {
 		{"/skip", CmdSkip, ""},
 		{"/reveal", CmdReveal, ""},
 		{"/stats", CmdStats, ""},
+		{"/undo", CmdUndo, ""},
 		{"/start", CmdHelp, ""},
 		{"/info 国境", CmdInfo, "国境"},
 
@@ -337,4 +339,124 @@ func beginFixture(t *testing.T) *Session {
 		t.Fatal("the fixture produced an empty queue")
 	}
 	return sess
+}
+
+// Undo takes a fumbled answer back completely: the store, the tallies and the
+// queue all look as they did before it was typed, and the card is asked again.
+func TestTurnUndoesAWrongAnswer(t *testing.T) {
+	ctx := context.Background()
+	sess := beginFixture(t)
+	turn := NewTurn(sess, now)
+
+	card, _ := turn.Card()
+	before, err := sess.store.Record(ctx, card.Key)
+	if err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	total := sess.Total()
+
+	if _, err := turn.Submit(ctx, answer("zzz"), now); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	out, err := turn.Submit(ctx, Command{Kind: CmdUndo}, now)
+	if err != nil {
+		t.Fatalf("undo: %v", err)
+	}
+	if out.What != OutUndone {
+		t.Fatalf("outcome = %v, want OutUndone", out.What)
+	}
+	if got, _ := turn.Card(); got.Key != card.Key || turn.Phase() != Asking {
+		t.Errorf("after undo: asking %q in phase %v, want %q in Asking", got.Prompt, turn.Phase(), card.Prompt)
+	}
+	if got, _ := turn.Card(); got.New != card.New || got.State.Level != card.State.Level {
+		t.Errorf("after undo the card is %+v, want it as it was: %+v", got.State, card.State)
+	}
+	if sess.Answered != 0 || sess.Incorrect != 0 || sess.Total() != total {
+		t.Errorf("tallies %d answered, %d wrong, %d queued; want 0, 0, %d",
+			sess.Answered, sess.Incorrect, sess.Total(), total)
+	}
+
+	after, err := sess.store.Record(ctx, card.Key)
+	if err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if after.Seen != before.Seen || after.State.Level != before.State.Level ||
+		after.State.Lapses != before.State.Lapses || after.LastWrong != "" {
+		t.Errorf("stored record %+v, want it as it was: %+v", after, before)
+	}
+
+	// And it can be answered properly this time.
+	out, err = turn.Submit(ctx, answer("nichi"), now)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if out.What != OutCorrect {
+		t.Errorf("re-asked card graded %v, want OutCorrect", out.What)
+	}
+}
+
+// The chance to undo survives the retype, but not the next card being
+// answered.
+func TestTurnUndoLastsUntilTheNextAnswer(t *testing.T) {
+	ctx := context.Background()
+	sess := beginFixture(t)
+	turn := NewTurn(sess, now)
+
+	missed, _ := turn.Card()
+	for _, line := range []string{"zzz", "nichi"} { // miss, then retype
+		if _, err := turn.Submit(ctx, answer(line), now); err != nil {
+			t.Fatalf("Submit: %v", err)
+		}
+	}
+	if !sess.CanUndo() {
+		t.Fatal("the retype used up the undo")
+	}
+	out, err := turn.Submit(ctx, Command{Kind: CmdUndo}, now)
+	if err != nil {
+		t.Fatalf("undo: %v", err)
+	}
+	if got, _ := turn.Card(); out.What != OutUndone || got.Key != missed.Key {
+		t.Fatalf("undo from the next card: %v, asking %q; want OutUndone on %q", out.What, got.Prompt, missed.Prompt)
+	}
+
+	// Missed again, retyped, and the next card answered: too late now.
+	for _, line := range []string{"zzz", "nichi", "zzz"} {
+		if _, err := turn.Submit(ctx, answer(line), now); err != nil {
+			t.Fatalf("Submit: %v", err)
+		}
+	}
+	if _, err := turn.Submit(ctx, Command{Kind: CmdSkip}, now); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := turn.Submit(ctx, Command{Kind: CmdSkip}, now); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if out, _ := turn.Submit(ctx, Command{Kind: CmdUndo}, now); out.What != OutNoUndo {
+		t.Errorf("undo after a skip = %v, want OutNoUndo", out.What)
+	}
+}
+
+// Only a wrong answer can be taken back: not a right one, and not a reveal,
+// which was asked for rather than fumbled.
+func TestTurnUndoIgnoresCorrectAnswersAndReveals(t *testing.T) {
+	ctx := context.Background()
+	sess := beginFixture(t)
+	turn := NewTurn(sess, now)
+
+	if _, err := turn.Submit(ctx, answer("nichi"), now); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if out, _ := turn.Submit(ctx, Command{Kind: CmdUndo}, now); out.What != OutNoUndo {
+		t.Errorf("undo after a correct answer = %v, want OutNoUndo", out.What)
+	}
+
+	if _, err := turn.Submit(ctx, Command{Kind: CmdReveal}, now); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if out, _ := turn.Submit(ctx, Command{Kind: CmdUndo}, now); out.What != OutNoUndo {
+		t.Errorf("undo after a reveal = %v, want OutNoUndo", out.What)
+	}
+	if sess.Answered != 2 {
+		t.Errorf("answered = %d, want 2", sess.Answered)
+	}
 }

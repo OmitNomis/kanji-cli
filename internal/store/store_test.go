@@ -472,7 +472,7 @@ func TestAnswerLogAndSettings(t *testing.T) {
 	ctx := context.Background()
 	s := fixture(t)
 
-	if err := s.LogAnswer(ctx, "k:日", "nichi", true, 0, 1, testNow, 1400*time.Millisecond); err != nil {
+	if _, err := s.LogAnswer(ctx, "k:日", "nichi", true, 0, 1, testNow, 1400*time.Millisecond); err != nil {
 		t.Fatalf("LogAnswer: %v", err)
 	}
 
@@ -561,7 +561,7 @@ func TestActivitySummarisesTheAnswerLog(t *testing.T) {
 		{testNow.Add(-21 * 24 * time.Hour), true},
 	}
 	for i, l := range log {
-		if err := s.LogAnswer(ctx, "k:日", "nichi", l.correct, 1, 2, l.at, 0); err != nil {
+		if _, err := s.LogAnswer(ctx, "k:日", "nichi", l.correct, 1, 2, l.at, 0); err != nil {
 			t.Fatalf("LogAnswer %d: %v", i, err)
 		}
 	}

@@ -267,6 +267,13 @@ func (a *app) loop(ctx context.Context, sess *review.Session) error {
 
 		case review.OutSkipped, review.OutAbandoned:
 			draw = true
+
+		case review.OutUndone:
+			a.out.Undone()
+			draw = true
+
+		case review.OutNoUndo:
+			a.out.NoUndo()
 		}
 	}
 }

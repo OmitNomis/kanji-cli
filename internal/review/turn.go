@@ -21,6 +21,7 @@ const (
 	CmdStats
 	CmdHelp
 	CmdReveal
+	CmdUndo
 
 	// CmdReview, CmdAhead and CmdCram open a session, so they mean nothing to
 	// a turn that is already in one. A front-end that can start sessions on
@@ -87,6 +88,8 @@ func ParseCommand(line, prefix string) Command {
 		return Command{Kind: CmdHelp}
 	case "r", "reveal", "hint":
 		return Command{Kind: CmdReveal}
+	case "u", "undo":
+		return Command{Kind: CmdUndo}
 	case "review", "go", "resume":
 		return Command{Kind: CmdReview}
 	case "ahead", "quick", "fast":
@@ -137,6 +140,11 @@ const (
 	OutStats
 	OutHelp
 	OutQuit
+
+	// OutUndone is a wrong answer taken back, its card asked again.
+	// OutNoUndo is an undo with nothing to take back.
+	OutUndone
+	OutNoUndo
 )
 
 // Outcome is what a submitted line did.
@@ -234,6 +242,22 @@ func (t *Turn) Submit(ctx context.Context, cmd Command, now time.Time) (Outcome,
 			out.Target = t.card.Prompt
 		}
 		t.asked = now
+		return out, nil
+
+	case CmdUndo:
+		// Works from the retype, or from the card after it, as long as that
+		// card has not been answered: the session forgets the chance as
+		// soon as anything else is graded or skipped.
+		if !t.sess.CanUndo() {
+			out.What = OutNoUndo
+			return out, nil
+		}
+		card, err := t.sess.Undo(ctx)
+		if err != nil {
+			return out, err
+		}
+		t.card, t.phase, t.asked = card, Asking, now
+		out.What, out.Card = OutUndone, card
 		return out, nil
 	}
 
