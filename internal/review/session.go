@@ -291,8 +291,10 @@ type Result struct {
 	// the dictionary writes it. Empty for a wrong answer.
 	Matched string
 
-	// Normalized is what the answer became after kana conversion, so a wrong
-	// answer can be shown back as the kana it actually was.
+	// Normalized is the answer converted to kana, so a wrong answer can be shown
+	// back as the kana it actually was. It is only converted, not normalised for
+	// comparison: kokukyou is shown as こくきょう, not as the こくきょお it is
+	// compared as.
 	Normalized string
 
 	Before   srs.State
@@ -319,7 +321,7 @@ func (s *Session) Answer(ctx context.Context, given string, elapsed time.Duratio
 	res := Result{
 		Correct:    correct,
 		Matched:    matched,
-		Normalized: kana.Normalize(given),
+		Normalized: kana.ToHiragana(given),
 		Before:     card.State,
 		After:      s.sched.Grade(card.State, correct, now),
 	}
