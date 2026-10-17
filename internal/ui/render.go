@@ -283,7 +283,7 @@ func (r *Renderer) Help() {
 }
 
 // Info prints a full dictionary entry and the compounds that use it.
-func (r *Renderer) Info(it store.Item, compounds []store.Item) {
+func (r *Renderer) Info(it store.Item, compounds []store.Item, rec store.Record, now time.Time) {
 	kind := "word"
 	if it.IsKanji() {
 		kind = fmt.Sprintf("kanji · grade %d", it.Grade)
@@ -302,6 +302,15 @@ func (r *Renderer) Info(it store.Item, compounds []store.Item) {
 		r.wrapped(under, it.Hint, r.style.Dim)
 	}
 	r.labelled(indent, "meaning   ", it.Gloss, plain, plain)
+
+	r.Blank()
+	for i, l := range RecordLines(rec, now) {
+		label := "          "
+		if i == 0 {
+			label = "you       "
+		}
+		r.labelled(indent, label, l, plain, r.style.Dim)
+	}
 
 	if len(compounds) > 0 {
 		r.Blank()

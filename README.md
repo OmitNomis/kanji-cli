@@ -237,7 +237,7 @@ Commands take a colon prefix, because single letters collide with real answers
 | `?` | reveal the reading (graded as wrong, because being told is not knowing) |
 | `:s` | skip without grading |
 | `:u` | take back a wrong answer — for the reading you knew and fumbled; works until the next card is answered |
-| `:i` / `:i 国境` | the full entry for this card, or for anything else |
+| `:i` / `:i 国境` | the full entry for this card, or for anything else, with your record: level, next due, right and wrong counts, the last thing you typed instead |
 | `:stats` | progress, mid-session |
 | `:q` | end the session |
 
@@ -353,7 +353,7 @@ copy of the rules to get out of step.
 | `/reveal` | show the reading, graded as wrong |
 | `/skip` | skip without grading |
 | `/undo` | take back a wrong answer, until the next card is answered |
-| `/info 国境` | an entry and the compounds that use it |
+| `/info 国境` | an entry, the compounds that use it, and your record with it |
 | `/stats` | progress |
 | `/stop` | end the session |
 

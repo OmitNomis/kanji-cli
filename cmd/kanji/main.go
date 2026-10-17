@@ -319,7 +319,11 @@ func (a *app) info(ctx context.Context, target string) error {
 				return err
 			}
 		}
-		a.out.Info(it, compounds)
+		rec, err := a.store.Record(ctx, it.Key)
+		if err != nil {
+			return err
+		}
+		a.out.Info(it, compounds, rec, time.Now())
 	}
 	return nil
 }

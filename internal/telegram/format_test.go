@@ -3,6 +3,7 @@ package telegram
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/OmitNomis/cli-kanji/internal/review"
 	"github.com/OmitNomis/cli-kanji/internal/srs"
@@ -156,7 +157,8 @@ func TestFeedbackTagsBalance(t *testing.T) {
 	c := card(2)
 	c.Gloss = "</blockquote><b>"
 	res := review.Result{Normalized: "<s>", Before: srs.State{Level: 2}, After: srs.State{Level: 1}}
-	for _, msg := range []string{Wrong(res, c), Revealed(res, c), Correct(res, c), Info(c.Item, []store.Item{c.Item})} {
+	hostile := store.Record{Seen: true, State: srs.State{Level: 2}, LastWrong: "</i><b>", LastWrongAt: time.Now()}
+	for _, msg := range []string{Wrong(res, c), Revealed(res, c), Correct(res, c), Info(c.Item, []store.Item{c.Item}, hostile, time.Now())} {
 		for _, tag := range []string{"b", "i", "s", "code", "blockquote"} {
 			open := strings.Count(msg, "<"+tag+">") + strings.Count(msg, "<"+tag+" ")
 			if closed := strings.Count(msg, "</"+tag+">"); open != closed {

@@ -147,7 +147,7 @@ func NoUndo() string {
 }
 
 // Info is a dictionary entry and the compounds that use it.
-func Info(it store.Item, compounds []store.Item) string {
+func Info(it store.Item, compounds []store.Item, rec store.Record, now time.Time) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<b>%s</b>  ·  %s", Escape(it.Prompt), kindBadge(it))
 	fmt.Fprintf(&b, "\n\n🔊 <b>%s</b>", Escape(strings.Join(it.Answers, ", ")))
@@ -158,6 +158,12 @@ func Info(it store.Item, compounds []store.Item) string {
 		fmt.Fprintf(&b, "\n<i>%s</i>", Escape(it.Hint))
 	}
 	b.WriteString(gloss(it.Gloss))
+
+	lines := ui.RecordLines(rec, now)
+	for i := range lines {
+		lines[i] = Escape(lines[i])
+	}
+	fmt.Fprintf(&b, "\n\n📈 <i>%s</i>", strings.Join(lines, "\n"))
 
 	if len(compounds) > 0 {
 		// Expandable, so a lookup in the middle of a session does not push the

@@ -381,3 +381,32 @@ func TestStyleRespectsNoColor(t *testing.T) {
 		t.Errorf("empty text was wrapped: %q", got)
 	}
 }
+
+func TestRecordLinesSayWhereAnItemStands(t *testing.T) {
+	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+
+	if got := RecordLines(store.Record{}, now); len(got) != 1 || got[0] != "not started yet" {
+		t.Errorf("unseen item: %q, want one line saying it has not started", got)
+	}
+
+	rec := store.Record{
+		Seen: true,
+		State: srs.State{Level: 4, DueAt: now.Add(72 * time.Hour), Correct: 12, Incorrect: 9,
+			Lapses: srs.LeechLapses, BestStreak: 5},
+		LastWrong:   "kokukyou",
+		LastWrongAt: now.Add(-5 * 24 * time.Hour),
+	}
+	out := strings.Join(RecordLines(rec, now), "\n")
+	for _, want := range []string{"familiar (level 4)", "due in 3d", "leech",
+		"12 right, 9 wrong", "forgotten 8 times", "best streak 5", "こくきょう, 5d ago"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("record is missing %q:\n%s", want, out)
+		}
+	}
+
+	// A burned item is never asked again, so it has no due time to give.
+	rec.State.Level = srs.MaxLevel
+	if out := strings.Join(RecordLines(rec, now), "\n"); strings.Contains(out, "due") {
+		t.Errorf("a burned item claims a due time:\n%s", out)
+	}
+}

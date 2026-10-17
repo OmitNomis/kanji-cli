@@ -530,7 +530,11 @@ func (b *bot) infoText(ctx context.Context, target string) (string, error) {
 				return "", err
 			}
 		}
-		parts = append(parts, telegram.Info(it, compounds))
+		rec, err := b.store.Record(ctx, it.Key)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, telegram.Info(it, compounds, rec, time.Now()))
 	}
 	return telegram.Join(parts...), nil
 }
