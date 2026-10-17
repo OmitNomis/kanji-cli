@@ -375,8 +375,15 @@ out when they end.
 |---|---|---|
 | `-remind-at` | `10` | session size worth a ping; `0` turns reminders off |
 | `-quiet` | `23-8` | local hours with no pings; empty for none |
+| `-summary-at` | `21` | local hour for the day's summary; `0` turns it off |
 
-Both go on the `ExecStart` line of the unit.
+All three go on the `ExecStart` line of the unit.
+
+Once a day, from `-summary-at` on, it also sends what the day came to:
+answers and accuracy, new kanji and words, your streak of consecutive days,
+and what is due now. A day with nothing in it gets one too. It is sent once
+per day however often the bot restarts, waits while you are mid-session, and
+ignores quiet hours, since you picked the hour.
 
 ### Setting it up
 

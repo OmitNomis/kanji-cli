@@ -592,3 +592,42 @@ func TestActivitySummarisesTheAnswerLog(t *testing.T) {
 		t.Errorf("empty period = %+v, want zeroes", empty)
 	}
 }
+
+func TestStreakCountsConsecutiveDays(t *testing.T) {
+	ctx := context.Background()
+	s := fixture(t)
+	// Noon local, so no answer sits near a midnight the zone could move.
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.Local)
+	day := func(n int) time.Time { return now.AddDate(0, 0, -n) }
+
+	if days, today, err := s.Streak(ctx, now); err != nil || days != 0 || today {
+		t.Fatalf("empty log: %d days, today %v, err %v; want 0, false", days, today, err)
+	}
+
+	// Yesterday and the two days before, then a gap, then more.
+	for _, n := range []int{1, 2, 3, 5, 6} {
+		if _, err := s.LogAnswer(ctx, "k:日", "nichi", true, 1, 2, day(n), 0); err != nil {
+			t.Fatalf("LogAnswer: %v", err)
+		}
+	}
+	days, today, err := s.Streak(ctx, now)
+	if err != nil || days != 3 || today {
+		t.Errorf("nothing yet today: %d days, today %v, err %v; want 3, false", days, today, err)
+	}
+
+	// Two answers today extend it by one day, not two.
+	for range 2 {
+		if _, err := s.LogAnswer(ctx, "k:日", "nichi", true, 1, 2, now, 0); err != nil {
+			t.Fatalf("LogAnswer: %v", err)
+		}
+	}
+	days, today, err = s.Streak(ctx, now)
+	if err != nil || days != 4 || !today {
+		t.Errorf("answered today: %d days, today %v, err %v; want 4, true", days, today, err)
+	}
+
+	// Two days on, the run is over.
+	if days, _, _ := s.Streak(ctx, now.AddDate(0, 0, 2)); days != 0 {
+		t.Errorf("after a missed day: %d days, want 0", days)
+	}
+}

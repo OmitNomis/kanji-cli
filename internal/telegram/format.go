@@ -304,8 +304,8 @@ func Help() string {
 	}, "\n")
 }
 
-// Reminder says a session is waiting. It is the one message the bot sends
-// unasked, so it says how big the session is and nothing else.
+// Reminder says a session is waiting. It is sent unasked, so it says how big
+// the session is and nothing else.
 func Reminder(due, fresh int) string {
 	var parts []string
 	if due > 0 {
@@ -320,6 +320,54 @@ func Reminder(due, fresh int) string {
 	}
 	return fmt.Sprintf("🔔 <b>%s %s waiting</b> · %s\n\n/review to start",
 		ui.Count(due+fresh), noun, strings.Join(parts, " · "))
+}
+
+// Day is what one day of reviewing came to, for the evening summary.
+type Day struct {
+	Activity store.Activity
+	NewKanji int
+	NewWords int
+	Streak   int // consecutive days with an answer, ending today or yesterday
+	Due      int // waiting now
+}
+
+// DailySummary is the once-a-day account of what was done. A day with nothing
+// in it still gets one, because that is the day it is most worth hearing about.
+func DailySummary(d Day) string {
+	var b strings.Builder
+	a := d.Activity
+	if a.Answered == 0 {
+		b.WriteString("🌙 <b>nothing reviewed today</b>")
+		if d.Streak > 0 {
+			fmt.Fprintf(&b, "\n\n🔥 your %s ends at midnight", streakText(d.Streak))
+		}
+	} else {
+		b.WriteString("🌙 <b>today</b>\n")
+		fmt.Fprintf(&b, "\n✍️ %s %s · %.0f%% right",
+			ui.Count(a.Answered), plural(a.Answered, "answer", "answers"), a.Accuracy()*100)
+		if d.NewKanji+d.NewWords > 0 {
+			fmt.Fprintf(&b, "\n🆕 %s %s · %s %s",
+				ui.Count(d.NewKanji), plural(d.NewKanji, "kanji", "kanji"),
+				ui.Count(d.NewWords), plural(d.NewWords, "word", "words"))
+		}
+		if d.Streak > 1 {
+			fmt.Fprintf(&b, "\n🔥 %s", streakText(d.Streak))
+		}
+	}
+
+	if d.Due > 0 {
+		fmt.Fprintf(&b, "\n\n📬 %s due now · /review", ui.Count(d.Due))
+	}
+	return b.String()
+}
+
+func streakText(days int) string { return fmt.Sprintf("%d-day streak", days) }
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // Commands is the menu Telegram shows when "/" is typed. The bot registers it

@@ -87,8 +87,9 @@ type options struct {
 	idle time.Duration
 	poll time.Duration
 
-	remindAt int
-	quiet    string
+	remindAt  int
+	quiet     string
+	summaryAt int
 }
 
 func run(args []string) error {
@@ -106,6 +107,7 @@ func run(args []string) error {
 	fs.DurationVar(&o.poll, "poll", 45*time.Second, "how long each long poll waits for an update")
 	fs.IntVar(&o.remindAt, "remind-at", 10, "ping when a session of this many cards is waiting (0 for never)")
 	fs.StringVar(&o.quiet, "quiet", "23-8", "local hours with no pings, such as 23-8 (empty for none)")
+	fs.IntVar(&o.summaryAt, "summary-at", 21, "local hour to send the day's summary, 1-23 (0 for never)")
 	fs.Usage = func() {
 		fmt.Fprint(fs.Output(), usage)
 		fs.PrintDefaults()
@@ -136,6 +138,9 @@ func run(args []string) error {
 	quiet, err := parseQuiet(o.quiet)
 	if err != nil {
 		return err
+	}
+	if o.summaryAt < 0 || o.summaryAt > 23 {
+		return fmt.Errorf("bad -summary-at %d: want an hour, 1-23, or 0 for never", o.summaryAt)
 	}
 
 	// SIGTERM is how systemd stops a service. Cancelling the context ends the
@@ -178,6 +183,7 @@ func run(args []string) error {
 		started: time.Now(),
 
 		reminder: reminder{at: o.remindAt, quiet: quiet},
+		summary:  summary{at: o.summaryAt},
 	}
 	return b.serve(ctx)
 }
@@ -225,6 +231,7 @@ type bot struct {
 	started time.Time
 
 	reminder reminder
+	summary  summary
 }
 
 // serve is the long poll.
@@ -269,6 +276,7 @@ func (b *bot) serve(ctx context.Context) error {
 		}
 		b.expire(time.Now())
 		b.remind(ctx, time.Now())
+		b.summarize(ctx, time.Now())
 	}
 
 	log.Printf("stopped")

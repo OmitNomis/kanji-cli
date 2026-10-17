@@ -606,3 +606,39 @@ func (s *Store) Record(ctx context.Context, key string) (Record, error) {
 	}
 	return rec, nil
 }
+
+// Streak counts consecutive local days with at least one answer, ending today.
+// When nothing has been answered today yet, it counts the run ending yesterday
+// instead and reports today as false: a streak still alive, but only until
+// midnight.
+func (s *Store) Streak(ctx context.Context, now time.Time) (days int, today bool, err error) {
+	// A year is enough to tell; nobody needs a streak counted past it.
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT date(at, 'unixepoch', 'localtime') AS d
+		FROM answer_log ORDER BY d DESC LIMIT 366`)
+	if err != nil {
+		return 0, false, fmt.Errorf("query streak: %w", err)
+	}
+	defer rows.Close()
+
+	// SQLite's localtime is the process's zone, so the dates are compared in it.
+	want := now.In(time.Local)
+	for first := true; rows.Next(); first = false {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			return 0, false, fmt.Errorf("scan streak: %w", err)
+		}
+		if first && d != want.Format(time.DateOnly) {
+			// Nothing today: the run, if there is one, ends yesterday.
+			want = want.AddDate(0, 0, -1)
+		} else if first {
+			today = true
+		}
+		if d != want.Format(time.DateOnly) {
+			break
+		}
+		days++
+		want = want.AddDate(0, 0, -1)
+	}
+	return days, today, rows.Err()
+}
