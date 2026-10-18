@@ -253,6 +253,14 @@ kanji info 国境            an entry, and the compounds that use it
 kanji version              which dictionary build is installed
 ```
 
+`stats` (and `:stats`, and the bot's `/stats`) also reads the answer log. It
+forecasts what comes due in the next day, week and month; gives accuracy by
+stage over the last 30 days, grouped by where an item was when it was asked, so
+a stage whose accuracy sags is one whose wait is too long; and lists up to five
+cards you get right but slowly, by the median time of their correct answers.
+Speed only informs: it never changes a schedule, because the bot's timings
+include typing on a phone and the network.
+
 Useful flags:
 
 | Flag | Default | |

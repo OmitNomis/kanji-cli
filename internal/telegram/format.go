@@ -236,7 +236,7 @@ func Summary(s *review.Session, c store.Counts, nextDue time.Time, hasNext bool,
 
 // Stats is the whole picture: coverage of the dictionary, the shape of the
 // queue across the ladder, and what the last week looked like.
-func Stats(c store.Counts, week store.Activity, nextDue time.Time, hasNext bool, now time.Time) string {
+func Stats(c store.Counts, week store.Activity, in store.Insights, nextDue time.Time, hasNext bool, now time.Time) string {
 	var b strings.Builder
 	b.WriteString("📊 <b>progress</b>\n")
 	fmt.Fprintf(&b, "\n✍️ kanji <code>%s</code> %s / %s",
@@ -265,9 +265,24 @@ func Stats(c store.Counts, week store.Activity, nextDue time.Time, hasNext bool,
 		fmt.Fprintf(&b, "\n\n%s", strings.Join(ladder, "\n"))
 	}
 
+	// How often an item was still known when it came round, by where it was
+	// when asked -- not where it is now, which is what the ladder above
+	// counts. Where it sags, the wait before that stage is too long.
+	var stages []string
+	for _, st := range ui.Stages(in.ByLevel) {
+		stages = append(stages, fmt.Sprintf("%s %.0f%%", st.Name, st.Accuracy()*100))
+	}
+	if len(stages) > 0 {
+		fmt.Fprintf(&b, "\n\n🎯 right by stage, 30 days: %s", strings.Join(stages, " · "))
+	}
+
 	fmt.Fprintf(&b, "\n\n🔔 due now <b>%s</b>", ui.Count(c.Due))
 	if c.Due == 0 && hasNext {
 		fmt.Fprintf(&b, " · next in %s", ui.Duration(nextDue.Sub(now)))
+	}
+	if in.Coming.Month > 0 {
+		fmt.Fprintf(&b, "\n🔮 coming: %s in a day · %s in a week · %s in a month",
+			ui.Count(in.Coming.Day), ui.Count(in.Coming.Week), ui.Count(in.Coming.Month))
 	}
 	if c.Leeches > 0 {
 		fmt.Fprintf(&b, "\n🐛 %s leeches <i>(forgotten %d+ times)</i>", ui.Count(c.Leeches), srs.LeechLapses)
@@ -275,6 +290,13 @@ func Stats(c store.Counts, week store.Activity, nextDue time.Time, hasNext bool,
 	if week.Answered > 0 {
 		fmt.Fprintf(&b, "\n📅 last 7 days: %s answers over %d days, %.0f%% correct",
 			ui.Count(week.Answered), week.Days, week.Accuracy()*100)
+	}
+	if len(in.Slow) > 0 {
+		var slow []string
+		for _, si := range in.Slow {
+			slow = append(slow, fmt.Sprintf("<b>%s</b> %s", Escape(si.Item.Prompt), si.Median.Round(time.Second)))
+		}
+		fmt.Fprintf(&b, "\n🐢 slow but right: %s", strings.Join(slow, " · "))
 	}
 	return b.String()
 }

@@ -292,7 +292,11 @@ func (a *app) stats(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	a.out.Stats(counts, week, nextDue, hasNext, now)
+	in, err := a.store.Insights(ctx, now)
+	if err != nil {
+		return err
+	}
+	a.out.Stats(counts, week, in, nextDue, hasNext, now)
 	return nil
 }
 

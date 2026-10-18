@@ -631,3 +631,68 @@ func TestStreakCountsConsecutiveDays(t *testing.T) {
 		t.Errorf("after a missed day: %d days, want 0", days)
 	}
 }
+
+func TestInsights(t *testing.T) {
+	ctx := context.Background()
+	s := fixture(t)
+	sched := srs.Default()
+
+	// Forecast: one item due in an hour, one in three days, one in a fortnight,
+	// and one already due, which is not "coming".
+	for key, in := range map[string]time.Duration{
+		"k:日": time.Hour, "k:本": 72 * time.Hour, "k:語": 14 * 24 * time.Hour, "w:1": -time.Hour,
+	} {
+		st := sched.Introduce(testNow)
+		st.DueAt = testNow.Add(in)
+		if err := s.Save(ctx, key, st); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+
+	logs := []struct {
+		key     string
+		level   int
+		correct bool
+		ms      int64
+		ago     time.Duration
+	}{
+		// 本 is right but slow every time; 日 is quick; 語 was slow once.
+		{"k:本", 3, true, 12000, time.Hour},
+		{"k:本", 3, true, 9000, 2 * time.Hour},
+		{"k:本", 3, false, 3000, 3 * time.Hour},
+		{"k:日", 3, true, 1500, time.Hour},
+		{"k:日", 3, true, 1200, 2 * time.Hour},
+		{"k:語", 5, true, 30000, time.Hour},
+		// A reveal has no time, and an answer outside the window is ignored.
+		{"k:語", 5, false, 0, time.Hour},
+		{"k:日", 5, false, 1000, 40 * 24 * time.Hour},
+	}
+	for _, l := range logs {
+		if _, err := s.LogAnswer(ctx, l.key, "x", l.correct, l.level, l.level, testNow.Add(-l.ago),
+			time.Duration(l.ms)*time.Millisecond); err != nil {
+			t.Fatalf("LogAnswer: %v", err)
+		}
+	}
+
+	in, err := s.Insights(ctx, testNow)
+	if err != nil {
+		t.Fatalf("Insights: %v", err)
+	}
+	if in.Coming.Day != 1 || in.Coming.Week != 2 || in.Coming.Month != 3 {
+		t.Errorf("coming = %+v, want 1 within a day, 2 a week, 3 a month", in.Coming)
+	}
+	if got := in.ByLevel[3]; got.Answered != 5 || got.Correct != 4 {
+		t.Errorf("level 3 = %+v, want 4 of 5", got)
+	}
+	if got := in.ByLevel[5]; got.Answered != 2 || got.Correct != 1 {
+		t.Errorf("level 5 = %+v, want 1 of 2: the old answer is outside the window", got)
+	}
+
+	// Only 本 has enough correct answers and is slow enough to list.
+	if len(in.Slow) != 1 || in.Slow[0].Item.Prompt != "本" {
+		t.Fatalf("slow = %+v, want just 本", in.Slow)
+	}
+	if got := in.Slow[0].Median; got != 10500*time.Millisecond {
+		t.Errorf("median = %v, want 10.5s", got)
+	}
+}

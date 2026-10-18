@@ -59,3 +59,31 @@ func times(n int) string {
 	}
 	return fmt.Sprintf("%d times", n)
 }
+
+// Stage is the accuracy of one named stretch of the ladder.
+type Stage struct {
+	Name string
+	store.Tally
+}
+
+// Stages groups accuracy by level name, which is what a level means to the
+// reviewer, in ladder order and leaving out stages with no answers.
+func Stages(byLevel [srs.MaxLevel + 1]store.Tally) []Stage {
+	var out []Stage
+	for level, t := range byLevel {
+		name := srs.LevelName(level)
+		if len(out) == 0 || out[len(out)-1].Name != name {
+			out = append(out, Stage{Name: name})
+		}
+		last := &out[len(out)-1]
+		last.Answered += t.Answered
+		last.Correct += t.Correct
+	}
+	kept := out[:0]
+	for _, st := range out {
+		if st.Answered > 0 {
+			kept = append(kept, st)
+		}
+	}
+	return kept
+}

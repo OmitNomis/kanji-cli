@@ -410,3 +410,21 @@ func TestRecordLinesSayWhereAnItemStands(t *testing.T) {
 		t.Errorf("a burned item claims a due time:\n%s", out)
 	}
 }
+
+func TestStagesGroupAccuracyByLevelName(t *testing.T) {
+	var by [srs.MaxLevel + 1]store.Tally
+	by[1] = store.Tally{Answered: 10, Correct: 9} // learning
+	by[2] = store.Tally{Answered: 10, Correct: 7} // learning
+	by[7] = store.Tally{Answered: 4, Correct: 2}  // solid
+
+	got := Stages(by)
+	if len(got) != 2 {
+		t.Fatalf("stages = %+v, want learning and solid only", got)
+	}
+	if got[0].Name != "learning" || got[0].Answered != 20 || got[0].Correct != 16 {
+		t.Errorf("first stage = %+v, want learning 16 of 20", got[0])
+	}
+	if got[1].Name != "solid" || got[1].Accuracy() != 0.5 {
+		t.Errorf("second stage = %+v, want solid at 50%%", got[1])
+	}
+}

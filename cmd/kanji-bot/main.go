@@ -512,7 +512,11 @@ func (b *bot) statsText(ctx context.Context, now time.Time) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return telegram.Stats(counts, week, nextDue, hasNext, now), nil
+	in, err := b.store.Insights(ctx, now)
+	if err != nil {
+		return "", err
+	}
+	return telegram.Stats(counts, week, in, nextDue, hasNext, now), nil
 }
 
 func (b *bot) infoText(ctx context.Context, target string) (string, error) {

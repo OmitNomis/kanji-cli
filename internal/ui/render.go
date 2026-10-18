@@ -366,7 +366,7 @@ func (r *Renderer) Summary(s *review.Session, c store.Counts, nextDue time.Time,
 
 // Stats prints the whole picture: coverage of the dictionary, the shape of the
 // queue across the level ladder, and what the last week actually looked like.
-func (r *Renderer) Stats(c store.Counts, week store.Activity, nextDue time.Time, hasNext bool, now time.Time) {
+func (r *Renderer) Stats(c store.Counts, week store.Activity, in store.Insights, nextDue time.Time, hasNext bool, now time.Time) {
 	r.Blank()
 	r.Rule("progress", "")
 	r.Blank()
@@ -397,6 +397,19 @@ func (r *Renderer) Stats(c store.Counts, week store.Activity, nextDue time.Time,
 			plural(week.Answered, "answer", "answers"),
 			plural(week.Days, "day", "days"),
 			week.Accuracy()*100)
+	}
+
+	// How often an item was still known when it came round, by where it was
+	// on the ladder when asked: where this sags, the wait before that rung is
+	// too long.
+	var stages []string
+	for _, st := range Stages(in.ByLevel) {
+		stages = append(stages, fmt.Sprintf("%s %.0f%% (%s)", st.Name, st.Accuracy()*100, Count(st.Answered)))
+	}
+	if len(stages) > 0 {
+		r.labelled(indent, "by stage     ", strings.Join(stages, " · ")+" · last 30 days", plain, plain)
+	}
+	if week.Answered > 0 || len(stages) > 0 {
 		r.Blank()
 	}
 
@@ -411,7 +424,30 @@ func (r *Renderer) Stats(c store.Counts, week store.Activity, nextDue time.Time,
 	if c.Due == 0 && hasNext {
 		r.Line("next       %s", r.style.Dim("in "+Duration(nextDue.Sub(now))))
 	}
+	if in.Coming.Month > 0 {
+		r.labelled(indent, "coming     ", fmt.Sprintf("%s in a day · %s in a week · %s in a month",
+			Count(in.Coming.Day), Count(in.Coming.Week), Count(in.Coming.Month)), plain, plain)
+	}
+
+	if len(in.Slow) > 0 {
+		r.Blank()
+		r.Line("%s", r.style.Dim("slow but right, median over the last 30 days"))
+		for _, si := range in.Slow {
+			r.Line("  %s  %s  %s",
+				Pad(si.Item.Prompt, 10),
+				Pad(Truncate(firstOf(si.Item.Answers), 14), 14),
+				r.style.Dim(si.Median.Round(time.Second).String()))
+		}
+	}
 	r.Blank()
+}
+
+// firstOf is the first of a list, or nothing.
+func firstOf(s []string) string {
+	if len(s) == 0 {
+		return ""
+	}
+	return s[0]
 }
 
 // progression describes what an answer did to an item's schedule.
