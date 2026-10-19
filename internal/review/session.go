@@ -77,6 +77,10 @@ const (
 
 	// Cram asks everything in the queue, whenever it is due.
 	Cram
+
+	// Leeches asks only the items forgotten srs.LeechLapses times or more,
+	// whenever they are due, and introduces nothing.
+	Leeches
 )
 
 // DefaultConfig is a session sized for a daily sitting: a few new characters,
@@ -186,6 +190,8 @@ func (s *Session) waiting(ctx context.Context, now time.Time) ([]store.Card, err
 	switch s.cfg.Pace {
 	case Cram:
 		return s.store.Scheduled(ctx, dueFetchLimit)
+	case Leeches:
+		return s.store.LeechCards(ctx, dueFetchLimit)
 	case Ahead:
 		// Soonest first, so what is already due is never crowded out by
 		// what merely could be asked.
@@ -197,6 +203,10 @@ func (s *Session) waiting(ctx context.Context, now time.Time) ([]store.Card, err
 // pickNew works out how much of today's budget is left and claims that many
 // items: kanji first, because every compound is gated behind them.
 func (s *Session) pickNew(ctx context.Context, now time.Time) ([]store.Card, error) {
+	if s.cfg.Pace == Leeches {
+		return nil, nil
+	}
+
 	var kanjiToday, wordsToday int
 	if s.cfg.Pace == Normal {
 		// Any other pace counts its intake against the session rather than

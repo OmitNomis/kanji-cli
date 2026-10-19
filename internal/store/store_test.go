@@ -696,3 +696,92 @@ func TestInsights(t *testing.T) {
 		t.Errorf("median = %v, want 10.5s", got)
 	}
 }
+
+func TestLeechesListTheirWrongAnswers(t *testing.T) {
+	ctx := context.Background()
+	s := fixture(t)
+	sched := srs.Default()
+
+	leech := sched.Introduce(testNow)
+	leech.Level, leech.Lapses = 2, srs.LeechLapses+1
+	worse := leech
+	worse.Lapses = srs.LeechLapses + 3
+	fine := leech
+	fine.Lapses = 1
+	for key, st := range map[string]srs.State{"k:本": leech, "w:1": worse, "k:語": fine} {
+		if err := s.Save(ctx, key, st); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+
+	// Romaji and kana for the same wrong reading are one answer; a reveal is
+	// not an answer at all.
+	for _, given := range []string{"moto", "もと", "moto", "hon", "", "ほn"} {
+		if _, err := s.LogAnswer(ctx, "k:本", given, false, 2, 1, testNow, 0); err != nil {
+			t.Fatalf("LogAnswer: %v", err)
+		}
+	}
+
+	got, err := s.Leeches(ctx)
+	if err != nil {
+		t.Fatalf("Leeches: %v", err)
+	}
+	if len(got) != 2 || got[0].Card.Key != "w:1" || got[1].Card.Key != "k:本" {
+		t.Fatalf("leeches = %v, want w:1 then k:本", leechKeys(got))
+	}
+	misses := got[1].Wrong
+	if len(misses) != 2 || misses[0] != (Miss{"もと", 3}) || misses[1] != (Miss{"ほん", 2}) {
+		t.Errorf("misses = %+v, want もと ×3 then ほん ×2", misses)
+	}
+}
+
+func leechKeys(ls []Leech) []string {
+	var out []string
+	for _, l := range ls {
+		out = append(out, l.Card.Key)
+	}
+	return out
+}
+
+func TestKnownWithKanji(t *testing.T) {
+	ctx := context.Background()
+	s := fixture(t)
+	sched := srs.Default()
+
+	known := sched.Introduce(testNow)
+	known.Level = 4
+	shaky := known
+	shaky.Level = 1
+	// 日本 is known, 日本語 is not yet.
+	if err := s.Save(ctx, "w:1", known); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(ctx, "w:2", shaky); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := s.Lookup(ctx, "本", 1)
+	if err != nil || len(items) == 0 {
+		t.Fatalf("Lookup 本: %v %v", items, err)
+	}
+	got, err := s.KnownWithKanji(ctx, items[0], 5)
+	if err != nil {
+		t.Fatalf("KnownWithKanji: %v", err)
+	}
+	if len(got) != 1 || got[0].Prompt != "日本" {
+		t.Errorf("known words with 本 = %v, want just 日本", got)
+	}
+
+	// From a word, through its kanji, never back to itself.
+	words, err := s.Lookup(ctx, "日本語", 1)
+	if err != nil || len(words) == 0 {
+		t.Fatalf("Lookup 日本語: %v %v", words, err)
+	}
+	got, err = s.KnownWithKanji(ctx, words[0], 5)
+	if err != nil {
+		t.Fatalf("KnownWithKanji: %v", err)
+	}
+	if len(got) != 1 || got[0].Prompt != "日本" {
+		t.Errorf("known words sharing a kanji with 日本語 = %v, want just 日本", got)
+	}
+}

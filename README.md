@@ -206,6 +206,23 @@ and what you do not.
 When you are up to speed, stop passing `-ahead` or `-cram` and the clock comes
 back.
 
+### Leeches
+
+A card forgotten eight times is a *leech*: it keeps dropping back down the
+ladder and soaking up reviews without sticking, and more of the same rarely
+fixes it. `kanji leeches` lists them, most forgotten first, with what you typed
+instead of the reading:
+
+```
+  国境        こっきょう      forgotten 9× · learning · ✗ こくきょう ×4, くにさかい
+```
+
+The same wrong reading every time is a confusion to sort out; a different one
+every time is a reading that never stuck. `kanji -leeches` reviews just those
+cards, whenever they are due. And whenever a leech is missed in any session,
+the feedback adds words you already know (familiar or better) that share its
+kanji, to give the reading something to hang on.
+
 ## Typing the answer
 
 Romaji and kana both work, and you need no IME:
@@ -249,6 +266,7 @@ quitting — or losing power — costs nothing but the summary.
 ```
 kanji                      review
 kanji stats                progress without reviewing
+kanji leeches              what you keep forgetting, and what you type instead
 kanji info 国境            an entry, and the compounds that use it
 kanji version              which dictionary build is installed
 ```
@@ -272,6 +290,7 @@ Useful flags:
 | `-tier` | 1 | 2 common compounds only, 1 also second tier, 0 all 175k |
 | `-gate` | 1 | level a kanji must reach before its compounds appear |
 | `-ahead` | off | also ask what comes due within a day, and spend the whole new-item budget now |
+| `-leeches` | off | review only the leeches, whenever they are due |
 | `-cram` | off | ignore due times, and spend the whole new-item budget now |
 | `-width` | auto | columns to lay out for; measured from the terminal, capped at 100 |
 | `-dict`, `-progress` | | database locations |
@@ -363,6 +382,7 @@ copy of the rules to get out of step.
 | `/undo` | take back a wrong answer, until the next card is answered |
 | `/info 国境` | an entry, the compounds that use it, and your record with it |
 | `/stats` | progress |
+| `/leeches` | what you keep forgetting; `/leeches review` drills it |
 | `/stop` | end the session |
 
 Anything not starting with `/` is an answer, and romaji works, so no IME is

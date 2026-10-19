@@ -194,6 +194,8 @@ func Banner(c store.Counts, pace review.Pace) string {
 		label = "⏩ <b>review ahead</b> · the next day's cards too"
 	case review.Cram:
 		label = "⚡ <b>cram</b> · due times ignored"
+	case review.Leeches:
+		label = "🐛 <b>leeches</b> · only what you keep forgetting"
 	}
 	return fmt.Sprintf("%s\n🔔 %s due · 📚 %s in progress · 🔥 %s burned",
 		label, ui.Count(c.Due), ui.Count(c.InProgress), ui.Count(c.Burned))
@@ -320,6 +322,7 @@ func Help() string {
 		"↩️ /undo — take back a wrong answer you knew, before answering the next card",
 		"🔍 /info 国境 — an entry and the compounds that use it",
 		"📊 /stats — progress",
+		"🐛 /leeches — what you keep forgetting, and what you type instead; /leeches review to drill it",
 		"⏹ /stop — end the session",
 		"",
 		"In /ahead and /cram, new cards come without their reading. Read one right and it skips straight to known, back in a week.",
@@ -405,6 +408,7 @@ func Commands() []BotCommand {
 		{"undo", "take back a wrong answer"},
 		{"info", "look up a kanji or word: /info 国境"},
 		{"stats", "progress"},
+		{"leeches", "what you keep forgetting; /leeches review to drill it"},
 		{"stop", "end the session"},
 		{"help", "what the bot understands"},
 	}

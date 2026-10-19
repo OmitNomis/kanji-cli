@@ -332,6 +332,16 @@ func (b *bot) dispatch(ctx context.Context, id int64, text string) error {
 		return b.begin(ctx, id, review.Ahead, now)
 	case review.CmdCram:
 		return b.begin(ctx, id, review.Cram, now)
+	case review.CmdLeeches:
+		// A list mid-session costs nothing; the card is still there after.
+		if strings.EqualFold(cmd.Text, "review") {
+			return b.begin(ctx, id, review.Leeches, now)
+		}
+		list, err := b.store.Leeches(ctx)
+		if err != nil {
+			return err
+		}
+		return b.send(ctx, id, telegram.Leeches(list))
 	}
 
 	c := b.chats[id]
@@ -390,6 +400,8 @@ func (b *bot) begin(ctx context.Context, id int64, pace review.Pace, now time.Ti
 			return b.send(ctx, id, "nothing left to cram: every item in the queue has been asked.")
 		case review.Ahead:
 			return b.send(ctx, id, "😴 nothing coming due within a day, and nothing new left to introduce.")
+		case review.Leeches:
+			return b.send(ctx, id, telegram.Leeches(nil))
 		}
 		nextDue, hasNext, err := b.store.NextDue(ctx, now)
 		if err != nil {
@@ -445,11 +457,16 @@ func (b *bot) submit(ctx context.Context, id int64, c *chat, cmd review.Command,
 		blocks = append(blocks, telegram.Correct(out.Result, out.Card))
 		reprompt = true
 
-	case review.OutWrong:
-		blocks = append(blocks, telegram.Wrong(out.Result, out.Card), telegram.Drill())
-
-	case review.OutRevealed:
-		blocks = append(blocks, telegram.Revealed(out.Result, out.Card), telegram.Drill())
+	case review.OutWrong, review.OutRevealed:
+		feedback := telegram.Wrong(out.Result, out.Card)
+		if out.What == review.OutRevealed {
+			feedback = telegram.Revealed(out.Result, out.Card)
+		}
+		related, err := b.relatedText(ctx, out)
+		if err != nil {
+			return err
+		}
+		blocks = append(blocks, feedback, related, telegram.Drill())
 
 	case review.OutMistyped:
 		blocks = append(blocks, telegram.Mistyped(out.Card))
@@ -517,6 +534,19 @@ func (b *bot) statsText(ctx context.Context, now time.Time) (string, error) {
 		return "", err
 	}
 	return telegram.Stats(counts, week, in, nextDue, hasNext, now), nil
+}
+
+// relatedText is, after a leech is missed, the words already known that share
+// its kanji; for anything else, nothing.
+func (b *bot) relatedText(ctx context.Context, out review.Outcome) (string, error) {
+	if !out.Result.After.IsLeech() {
+		return "", nil
+	}
+	items, err := b.store.KnownWithKanji(ctx, out.Card.Item, 3)
+	if err != nil {
+		return "", err
+	}
+	return telegram.Related(items), nil
 }
 
 func (b *bot) infoText(ctx context.Context, target string) (string, error) {

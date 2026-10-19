@@ -29,6 +29,10 @@ const (
 	CmdReview
 	CmdAhead
 	CmdCram
+
+	// CmdLeeches lists the leeches, or with "review" opens a session of
+	// them. Either way it is the front-end's to act on, like the three above.
+	CmdLeeches
 )
 
 // Command is a classified line: a kind, and the text that goes with it.
@@ -96,6 +100,8 @@ func ParseCommand(line, prefix string) Command {
 		return Command{Kind: CmdAhead}
 	case "cram", "catchup":
 		return Command{Kind: CmdCram}
+	case "leeches", "leech":
+		return Command{Kind: CmdLeeches, Text: strings.TrimSpace(arg)}
 	default:
 		return Command{Kind: CmdHelp}
 	}
@@ -215,7 +221,7 @@ func (t *Turn) Submit(ctx context.Context, cmd Command, now time.Time) (Outcome,
 	// These mean the same thing in either phase, and none of them touches the
 	// card.
 	switch cmd.Kind {
-	case CmdEmpty, CmdReview, CmdAhead, CmdCram:
+	case CmdEmpty, CmdReview, CmdAhead, CmdCram, CmdLeeches:
 		out.What = OutNothing
 		t.asked = now
 		return out, nil

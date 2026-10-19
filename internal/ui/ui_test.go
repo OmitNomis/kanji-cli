@@ -428,3 +428,27 @@ func TestStagesGroupAccuracyByLevelName(t *testing.T) {
 		t.Errorf("second stage = %+v, want solid at 50%%", got[1])
 	}
 }
+
+func TestLeechListShowsWhatWasTypedInstead(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, 60, false)
+
+	r.Leeches([]store.Leech{{
+		Card: store.Card{
+			Item:  store.Item{Kind: "word", Prompt: "国境", Answers: []string{"こっきょう", "くにざかい"}},
+			State: srs.State{Level: 2, Lapses: 9},
+		},
+		Wrong: []store.Miss{{Kana: "こくきょう", Count: 4}, {Kana: "くにさかい", Count: 1}},
+	}})
+	out := buf.String()
+	for _, want := range []string{"国境", "こっきょう", "forgotten 9×", "こくきょう ×4", "くにさかい", "kanji -leeches"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("leech list is missing %q:\n%s", want, out)
+		}
+	}
+	for _, l := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		if Width(l) > 60 {
+			t.Errorf("line is %d columns, want at most 60: %q", Width(l), l)
+		}
+	}
+}

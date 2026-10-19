@@ -25,6 +25,7 @@ the reading; romaji and kana both work, and there is nothing to choose from.
 Usage:
   kanji [flags]           start a review session
   kanji stats             show progress without reviewing
+  kanji leeches           list what you keep forgetting, and what you type instead
   kanji info <kanji|word> look up an entry and the compounds that use it
   kanji version           report the dictionary build
 
@@ -57,6 +58,7 @@ type options struct {
 	gate     int
 	cram     bool
 	ahead    bool
+	leeches  bool
 
 	width int
 	color bool
@@ -74,6 +76,7 @@ func run(args []string) error {
 	fs.IntVar(&o.tier, "tier", 1, "lowest compound frequency tier to review: 2 common, 1 also second tier, 0 all")
 	fs.IntVar(&o.gate, "gate", 1, "level a kanji must reach before its compounds are introduced")
 	fs.BoolVar(&o.ahead, "ahead", false, "review what comes due in the next day as well, and take the whole new-item budget this session")
+	fs.BoolVar(&o.leeches, "leeches", false, "review only the leeches, the items forgotten too often, whenever they are due")
 	fs.BoolVar(&o.cram, "cram", false, "ignore due times: ask everything in the queue now, and take the whole new-item budget this session")
 	fs.IntVar(&o.width, "width", 0, "columns to lay out for (0 measures the terminal)")
 	fs.BoolVar(&o.color, "color", false, "force colour even when output is redirected")
@@ -118,12 +121,14 @@ func run(args []string) error {
 		return app.review(ctx)
 	case "stats":
 		return app.stats(ctx)
+	case "leeches":
+		return app.leeches(ctx)
 	case "info":
 		return app.info(ctx, strings.Join(fs.Args(), ""))
 	case "version":
 		return app.version(ctx)
 	default:
-		return fmt.Errorf("unknown command %q (try review, stats, info or version)", command)
+		return fmt.Errorf("unknown command %q (try review, stats, leeches, info or version)", command)
 	}
 }
 
@@ -252,10 +257,16 @@ func (a *app) loop(ctx context.Context, sess *review.Session) error {
 
 		case review.OutWrong:
 			a.out.Wrong(out.Result, out.Card)
+			if err := a.related(ctx, out); err != nil {
+				return err
+			}
 			a.out.Drill()
 
 		case review.OutRevealed:
 			a.out.Revealed(out.Result, out.Card)
+			if err := a.related(ctx, out); err != nil {
+				return err
+			}
 			a.out.Drill()
 
 		case review.OutMistyped:
@@ -276,6 +287,29 @@ func (a *app) loop(ctx context.Context, sess *review.Session) error {
 			a.out.NoUndo()
 		}
 	}
+}
+
+// related shows, after a leech is missed, words already known that share its
+// kanji.
+func (a *app) related(ctx context.Context, out review.Outcome) error {
+	if !out.Result.After.IsLeech() {
+		return nil
+	}
+	items, err := a.store.KnownWithKanji(ctx, out.Card.Item, 3)
+	if err != nil {
+		return err
+	}
+	a.out.Related(items)
+	return nil
+}
+
+func (a *app) leeches(ctx context.Context) error {
+	list, err := a.store.Leeches(ctx)
+	if err != nil {
+		return err
+	}
+	a.out.Leeches(list)
+	return nil
 }
 
 func (a *app) stats(ctx context.Context) error {
@@ -358,6 +392,8 @@ func (a *app) nothingDue(ctx context.Context, now time.Time) error {
 	}
 	a.out.Blank()
 	switch {
+	case a.opts.leeches:
+		a.out.Line("no leeches: nothing has been forgotten %d times.", srs.LeechLapses)
 	case a.opts.ahead && !a.opts.cram:
 		a.out.Line("nothing coming due within a day, and nothing left to introduce.")
 	case a.opts.cram:
@@ -406,6 +442,8 @@ func (a *app) config() (review.Config, error) {
 	cfg.Selection.WordTier = a.opts.tier
 	cfg.Selection.GateLevel = a.opts.gate
 	switch {
+	case a.opts.leeches:
+		cfg.Pace = review.Leeches
 	case a.opts.cram:
 		cfg.Pace = review.Cram
 	case a.opts.ahead:
