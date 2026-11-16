@@ -19,6 +19,8 @@ Intel Atom N280 at 1.66 GHz with 988 MB of DDR2. So the whole thing is Go with
 a pure-Go SQLite driver — no cgo, no runtime dependencies, one 6.2 MB static
 binary. On that machine it starts in 76 ms and peaks at 8 MB of RSS.
 
+I built this for myself, to fix my slow kanji reading while living in Japan.
+
 ## Quick start
 
 ```sh
