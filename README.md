@@ -220,8 +220,10 @@ kanji -cram -new-kanji 40 -new-words 60     # a catch-up sitting
 In both, the daily new-item budget becomes a per-session one, so running it
 four times introduces four times as much. And new cards are asked without
 their reading: read one right on first sight and it goes straight to *known*,
-a week out, instead of climbing every rung. Miss it, or reveal it with `?`, and
-it is taught the usual way. Answers are still
+a week out, instead of climbing every rung, and it does not use up the
+budget: the next new card of the same kind is asked straight after it, so a run
+of things you already know carries on until the first one you do not. Miss it,
+or reveal it with `?`, and it is taught the usual way. Answers are still
 graded, still persisted, and still given real due times — it is the *waiting*
 that is skipped, not the ladder. So a correct answer in a cram session climbs a
 rung exactly as it would otherwise, and a few passes leave a queue that

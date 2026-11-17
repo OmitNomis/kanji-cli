@@ -151,3 +151,64 @@ func TestNormalSessionsDoNotProbe(t *testing.T) {
 		t.Errorf("normal new card answered: placed=%v level %d, want level 1", res.Placed, res.After.Level)
 	}
 }
+
+// A probe read right costs nothing to learn, so the next new item of the same
+// kind is asked straight after it, and the chain runs until something is not
+// known.
+func TestAProbeReadRightBringsInTheNext(t *testing.T) {
+	ctx := context.Background()
+	s := fixture(t)
+
+	cfg := testConfig()
+	cfg.NewKanji = 1
+	cfg.Pace = Ahead
+	sess, err := Begin(ctx, s, exact, cfg, now)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+
+	for _, step := range []struct{ prompt, answer string }{{"日", "nichi"}, {"本", "hon"}} {
+		card, ok := sess.Current()
+		if !ok || card.Prompt != step.prompt || !card.Probe {
+			t.Fatalf("current = %q (probe %v), want a probe for %s; queue %v", card.Prompt, card.Probe, step.prompt, promptsOf(queueOf(sess)))
+		}
+		if _, err := sess.Answer(ctx, step.answer, time.Second, now); err != nil {
+			t.Fatalf("Answer %s: %v", step.prompt, err)
+		}
+	}
+
+	card, ok := sess.Current()
+	if !ok || card.Prompt != "語" || !card.Probe {
+		t.Fatalf("after two known kanji, current = %q, want a probe for 語", card.Prompt)
+	}
+	if _, err := sess.Answer(ctx, "", 0, now); err != nil {
+		t.Fatalf("Answer: %v", err)
+	}
+	// The miss is requeued and nothing new is added: the fixture has no more
+	// kanji, and a miss never refills anyway.
+	if got := promptsOf(queueOf(sess)); !equalStrings(got, []string{"日", "本", "語", "語"}) {
+		t.Errorf("queue = %v, want [日 本 語 語]", got)
+	}
+}
+
+// A probe missed uses up its slot like any new card: nothing replaces it.
+func TestAProbeMissedDoesNotBringInTheNext(t *testing.T) {
+	ctx := context.Background()
+	s := fixture(t)
+
+	cfg := testConfig()
+	cfg.NewKanji = 1
+	cfg.Pace = Ahead
+	sess, err := Begin(ctx, s, exact, cfg, now)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	if _, err := sess.Answer(ctx, "", 0, now); err != nil {
+		t.Fatalf("Answer: %v", err)
+	}
+	for _, c := range queueOf(sess) {
+		if c.Key != "k:日" {
+			t.Fatalf("queue = %v, want only 日 and its relearn copy", promptsOf(queueOf(sess)))
+		}
+	}
+}

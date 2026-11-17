@@ -329,7 +329,7 @@ func Help() string {
 		"🐛 /leeches — what you keep forgetting, and what you type instead; /leeches review to drill it",
 		"⏹ /stop — end the session",
 		"",
-		"In /ahead and /cram, new cards come without their reading. Read one right and it skips straight to known, back in a week.",
+		"In /ahead and /cram, new cards come without their reading. Read one right and it skips straight to known, back in a week, and the next new card takes its place.",
 	}, "\n")
 }
 

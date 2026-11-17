@@ -386,6 +386,16 @@ func (s *Session) Answer(ctx context.Context, given string, elapsed time.Duratio
 	card.Probe = false
 	s.queue[s.pos] = card
 
+	if res.Placed {
+		// Something read right on first sight cost nothing to learn, so it
+		// should not use up the session's budget: the next new item of the
+		// same kind takes its place, asked straight after. A run of things you
+		// already know carries on until the first one you do not.
+		if err := s.refill(ctx, card, now); err != nil {
+			return res, err
+		}
+	}
+
 	if !correct && s.relearns[card.Key] < s.cfg.MaxRelearns {
 		s.relearns[card.Key]++
 		at := s.requeue(card)
@@ -397,6 +407,41 @@ func (s *Session) Answer(ctx context.Context, given string, elapsed time.Duratio
 
 	s.pos++
 	return res, nil
+}
+
+// refill queues the next new item of the same kind as card, as the card after
+// it. Items already saved are excluded by the store, so the only ones to step
+// over are new cards still waiting in this session's queue.
+func (s *Session) refill(ctx context.Context, card store.Card, now time.Time) error {
+	queued := make(map[string]bool, len(s.queue))
+	waiting := 0
+	for _, c := range s.queue {
+		queued[c.Key] = true
+		if c.New && c.IsKanji() == card.IsKanji() {
+			waiting++
+		}
+	}
+
+	var items []store.Item
+	var err error
+	if card.IsKanji() {
+		items, err = s.store.NextKanji(ctx, s.cfg.Selection, waiting+1)
+	} else {
+		items, err = s.store.NextWords(ctx, s.cfg.Selection, waiting+1)
+	}
+	if err != nil {
+		return err
+	}
+	for _, it := range items {
+		if queued[it.Key] {
+			continue
+		}
+		next := asNewCards([]store.Item{it}, s.sched, now, true)[0]
+		at := s.pos + 1
+		s.queue = append(s.queue[:at], append([]store.Card{next}, s.queue[at:]...)...)
+		return nil
+	}
+	return nil
 }
 
 // Skip moves past the current card without grading it.
