@@ -62,6 +62,10 @@ type Selection struct {
 	// GateLevel is the level a kanji must reach before compounds containing it
 	// are introduced. 1 means one correct answer is enough.
 	GateLevel int
+
+	// JLPTFloor, when set, introduces only kanji whose old JLPT level is at
+	// least this, the easiest level first. 0 means no JLPT target. See jlpt.go.
+	JLPTFloor int
 }
 
 // DefaultSelection teaches the whole joyo list and both common word tiers,
@@ -124,16 +128,19 @@ func (s *Store) queue(ctx context.Context, where string, args []any) ([]Card, er
 }
 
 // NextKanji returns kanji not yet in the queue, in teaching order: by school
-// grade, then by how often the character appears in print.
+// grade, then by how often the character appears in print. With a JLPT target
+// only that target's kanji qualify, and the easiest JLPT level comes first.
 func (s *Store) NextKanji(ctx context.Context, sel Selection, limit int) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+itemColumns+`
 		FROM `+DictAlias+`.item i
+		LEFT JOIN `+DictAlias+`.kanji k ON k.id = i.ref_id
 		WHERE i.kind = 'kanji'
 		  AND i.grade BETWEEN ? AND ?
+		  AND (? = 0 OR coalesce(k.jlpt, 0) >= ?)
 		  AND NOT EXISTS (SELECT 1 FROM review r WHERE r.item_key = i.key)
-		ORDER BY i.sort_key, i.key
-		LIMIT ?`, sel.MinGrade, sel.MaxGrade, limit)
+		ORDER BY CASE WHEN ? = 0 THEN 0 ELSE -coalesce(k.jlpt, 0) END, i.sort_key, i.key
+		LIMIT ?`, sel.MinGrade, sel.MaxGrade, sel.JLPTFloor, sel.JLPTFloor, sel.JLPTFloor, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query new kanji: %w", err)
 	}
@@ -289,6 +296,12 @@ type Counts struct {
 	Leeches         int
 
 	ByLevel [srs.MaxLevel + 1]int
+
+	// JLPTTarget is the stored target ("N2"), or "" when there is none. The
+	// two figures under it are only filled in when there is one.
+	JLPTTarget            string
+	TargetKanji           int // kanji the target covers
+	TargetKanjiInProgress int // of those, kanji with any review state
 }
 
 // inDict limits a query on review to items the dictionary still has.
@@ -321,6 +334,23 @@ func (s *Store) Counts(ctx context.Context, now time.Time) (Counts, error) {
 	for _, sc := range scalars {
 		if err := s.db.QueryRowContext(ctx, sc.query, sc.args...).Scan(sc.dst); err != nil {
 			return c, fmt.Errorf("count: %w", err)
+		}
+	}
+
+	target, err := s.JLPTTarget(ctx)
+	if err != nil {
+		return c, err
+	}
+	c.JLPTTarget = target
+	if floor := JLPTFloor(c.JLPTTarget); floor > 0 {
+		inTarget := `FROM ` + DictAlias + `.item i JOIN ` + DictAlias + `.kanji k ON k.id = i.ref_id
+			WHERE i.kind = 'kanji' AND k.jlpt >= ?`
+		if err := s.db.QueryRowContext(ctx, `SELECT count(*) `+inTarget, floor).Scan(&c.TargetKanji); err != nil {
+			return c, fmt.Errorf("count target kanji: %w", err)
+		}
+		if err := s.db.QueryRowContext(ctx, `SELECT count(*) `+inTarget+`
+			AND EXISTS (SELECT 1 FROM review r WHERE r.item_key = i.key)`, floor).Scan(&c.TargetKanjiInProgress); err != nil {
+			return c, fmt.Errorf("count target kanji in progress: %w", err)
 		}
 	}
 

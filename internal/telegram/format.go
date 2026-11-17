@@ -243,6 +243,10 @@ func Stats(c store.Counts, week store.Activity, in store.Insights, nextDue time.
 	b.WriteString("📊 <b>progress</b>\n")
 	fmt.Fprintf(&b, "\n✍️ kanji <code>%s</code> %s / %s",
 		bar(c.KanjiInProgress, c.DictKanjiItems, 10), ui.Count(c.KanjiInProgress), ui.Count(c.DictKanjiItems))
+	if c.JLPTTarget != "" {
+		fmt.Fprintf(&b, "\n🎯 %s list <code>%s</code> %s / %s", c.JLPTTarget,
+			bar(c.TargetKanjiInProgress, c.TargetKanji, 10), ui.Count(c.TargetKanjiInProgress), ui.Count(c.TargetKanji))
+	}
 	fmt.Fprintf(&b, "\n📖 words <code>%s</code> %s / %s",
 		bar(c.WordsInProgress, c.DictWordItems, 10), ui.Count(c.WordsInProgress), ui.Count(c.DictWordItems))
 

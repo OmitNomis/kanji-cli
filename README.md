@@ -128,6 +128,30 @@ card.
 Grades 9 and 10 (jinmeiyō, the name kanji) are imported so compounds can
 reference them, but never scheduled.
 
+### Studying for the JLPT
+
+School-grade order is not test order. Grades 1-6 teach prefecture names and
+words like 蚕 and 俵 early, and leave everyday kanji such as 違, 込, 払 and 頼 for
+the middle-school half of the list. A JLPT target fixes the order:
+
+```sh
+kanji jlpt N2      # only the kanji up to N2, easiest level first
+kanji jlpt         # show the target and how far through it you are
+kanji jlpt off     # back to the whole jōyō list in grade order
+```
+
+With a target, new kanji come only from that target's list, N5 first, then N4,
+then the rest. Compounds follow as before, because they are gated on the kanji
+you know. The target is stored in the progress database, so the Telegram bot
+picks it up at its next session without a restart. `stats` adds a bar for it
+(`N2 list  175 / 1,023`). Progress is per kanji, so changing or clearing the
+target loses nothing.
+
+The JLPT has published no kanji list since 2010. The levels used are the
+pre-2010 ones that KANJIDIC2 still carries (1,023 kanji up to the old level 2).
+The old test had nothing between its levels 3 and 2, so N3 and N2 are one group
+here. Treat it as a good order, not a guarantee of what the test will use.
+
 ## How a session works
 
 **Compounds are gated behind their kanji.** A word only enters the queue once
@@ -270,6 +294,7 @@ kanji                      review
 kanji stats                progress without reviewing
 kanji leeches              what you keep forgetting, and what you type instead
 kanji info 国境            an entry, and the compounds that use it
+kanji jlpt N2              teach the N2 kanji first (see Studying for the JLPT)
 kanji version              which dictionary build is installed
 ```
 

@@ -159,6 +159,16 @@ type Session struct {
 // woven in. A session at another Pace reaches past what has come round, and
 // takes the whole of the new-item budget rather than what the day has left.
 func Begin(ctx context.Context, st *store.Store, sched srs.Scheduler, cfg Config, now time.Time) (*Session, error) {
+	// The JLPT target lives in the progress database, so it is read per session:
+	// setting it from the terminal reaches a bot that is already running.
+	if cfg.Selection.JLPTFloor == 0 {
+		target, err := st.JLPTTarget(ctx)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Selection.JLPTFloor = store.JLPTFloor(target)
+	}
+
 	s := &Session{
 		store:     st,
 		sched:     sched,

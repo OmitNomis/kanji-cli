@@ -472,3 +472,33 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+func TestBeginFollowsTheStoredJLPTTarget(t *testing.T) {
+	ctx := context.Background()
+	s := fixture(t)
+	for lit, lvl := range map[string]int{"日": 1, "本": 2, "語": 4} {
+		if _, err := s.DB().Exec(`UPDATE `+store.DictAlias+`.kanji SET jlpt = ? WHERE literal = ?`, lvl, lit); err != nil {
+			t.Fatalf("set jlpt: %v", err)
+		}
+	}
+	if err := s.SetJLPTTarget(ctx, "N2"); err != nil {
+		t.Fatalf("SetJLPTTarget: %v", err)
+	}
+
+	sess, err := Begin(ctx, s, exact, testConfig(), now)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	var got []string
+	for {
+		card, ok := sess.Current()
+		if !ok {
+			break
+		}
+		got = append(got, card.Prompt)
+		sess.Skip()
+	}
+	if len(got) != 2 || got[0] != "語" || got[1] != "本" {
+		t.Errorf("queue = %v, want [語 本]", got)
+	}
+}

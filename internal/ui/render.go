@@ -371,6 +371,9 @@ func (r *Renderer) Stats(c store.Counts, week store.Activity, in store.Insights,
 	r.Rule("progress", "")
 	r.Blank()
 	r.Line("kanji      %s", bar(c.KanjiInProgress, c.DictKanjiItems, 24, r.style))
+	if c.JLPTTarget != "" {
+		r.Line("%-11s%s", c.JLPTTarget+" list", bar(c.TargetKanjiInProgress, c.TargetKanji, 24, r.style))
+	}
 	r.Line("compounds  %s", bar(c.WordsInProgress, c.DictWordItems, 24, r.style))
 	r.Blank()
 

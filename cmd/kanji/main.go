@@ -27,6 +27,8 @@ Usage:
   kanji stats             show progress without reviewing
   kanji leeches           list what you keep forgetting, and what you type instead
   kanji info <kanji|word> look up an entry and the compounds that use it
+  kanji jlpt [N5..N1|off] show or set a JLPT target: teach that level's kanji
+                          first, easiest level first (the bot follows it too)
   kanji version           report the dictionary build
 
 Flags:
@@ -125,10 +127,12 @@ func run(args []string) error {
 		return app.leeches(ctx)
 	case "info":
 		return app.info(ctx, strings.Join(fs.Args(), ""))
+	case "jlpt":
+		return app.jlpt(ctx, fs.Args())
 	case "version":
 		return app.version(ctx)
 	default:
-		return fmt.Errorf("unknown command %q (try review, stats, leeches, info or version)", command)
+		return fmt.Errorf("unknown command %q (try review, stats, leeches, info, jlpt or version)", command)
 	}
 }
 
@@ -363,6 +367,39 @@ func (a *app) info(ctx context.Context, target string) error {
 		}
 		a.out.Info(it, compounds, rec, time.Now())
 	}
+	return nil
+}
+
+// jlpt shows the JLPT target, or sets it first when one is given.
+func (a *app) jlpt(ctx context.Context, args []string) error {
+	if len(args) > 0 {
+		target, err := store.ParseJLPT(args[0])
+		if err != nil {
+			return err
+		}
+		if err := a.store.SetJLPTTarget(ctx, target); err != nil {
+			return err
+		}
+	}
+
+	counts, err := a.store.Counts(ctx, time.Now())
+	if err != nil {
+		return err
+	}
+	a.out.Blank()
+	if counts.JLPTTarget == "" {
+		a.out.Line("no JLPT target: teaching the whole joyo list in school-grade order.")
+		a.out.Line("set one with: kanji jlpt N2")
+		a.out.Blank()
+		return nil
+	}
+	a.out.Line("JLPT target %s: %s of %s kanji started, easiest level first.",
+		counts.JLPTTarget, ui.Count(counts.TargetKanjiInProgress), ui.Count(counts.TargetKanji))
+	if counts.JLPTTarget == "N3" || counts.JLPTTarget == "N2" {
+		a.out.Line("N3 and N2 share one list (the pre-2010 test had no N3), so they come as one group.")
+	}
+	a.out.Line("the bot follows this too. back to the whole joyo list: kanji jlpt off")
+	a.out.Blank()
 	return nil
 }
 
